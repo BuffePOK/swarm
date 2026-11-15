@@ -91,11 +91,18 @@ def check_code(src: str, entrypoint: str = "parse") -> list[str]:
 
 
 def _limits() -> None:  # POSIX only, runs in the child before exec
+    """Each limit is best effort: macOS rejects RLIMIT_AS, and an exception here would stop the child.
+    The CPU limit and the parent's wall-clock timeout always apply."""
     import resource
 
-    resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
-    resource.setrlimit(resource.RLIMIT_AS, (768 * 1024 * 1024, 768 * 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_NOFILE, (16, 16))
+    for name, value in (("RLIMIT_CPU", 10), ("RLIMIT_AS", 768 * 1024 * 1024), ("RLIMIT_NOFILE", 16)):
+        limit = getattr(resource, name, None)
+        if limit is None:
+            continue
+        try:
+            resource.setrlimit(limit, (value, value))
+        except (ValueError, OSError):
+            pass
 
 
 def run_adapter(src: str, raw: str, base_url: str, *, timeout_s: float = 15.0) -> list[dict[str, Any]]:

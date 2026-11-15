@@ -1211,12 +1211,13 @@ wheels = [
 
 [[package]]
 name = "roj"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "tzdata" },
 ]
 
 [package.optional-dependencies]
@@ -1253,6 +1254,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pywinauto", marker = "sys_platform == 'win32' and extra == 'desktop'", specifier = ">=0.6" },
     { name = "pyyaml", specifier = ">=6,<7" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "uvicorn", marker = "extra == 'web'", specifier = ">=0.29" },
 ]
 provides-extras = ["dev", "mcp", "browser", "rag", "web", "desktop"]

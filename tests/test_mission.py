@@ -35,7 +35,7 @@ def lab(home, tmp_path):
     git(repo, "add", "-A")
     git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
     with open(home / "roj.toml", "a", encoding="utf-8") as f:
-        f.write(f'\n[selfdev]\nrepo = "{repo}"\n')
+        f.write(f'\n[selfdev]\nrepo = "{repo.as_posix()}"\n')
     inst = Installation(home)
     project = inst.create_project("lab")
     yield project

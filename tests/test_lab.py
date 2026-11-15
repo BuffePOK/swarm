@@ -181,7 +181,7 @@ def test_selfdev_builds_gates_reviews_and_opens_a_pull_request(home, web, toy_re
     repo, remote = toy_repo
     monkeypatch.setenv("ROJ_GITHUB_TOKEN", "ghp_test")
     with open(home / "roj.toml", "a", encoding="utf-8") as f:
-        f.write(f'\n[selfdev]\nrepo = "{repo}"\ngithub_repo = "me/toy"\ngithub_api = "{web_url}"\n')
+        f.write(f'\n[selfdev]\nrepo = "{repo.as_posix()}"\ngithub_repo = "me/toy"\ngithub_api = "{web_url}"\n')
     inst = Installation(home)
     project = inst.create_project("lab")
     tid = project.kernel.submit(SELFDEV_REF, {})

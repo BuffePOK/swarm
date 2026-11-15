@@ -186,8 +186,16 @@ class Settings(BaseModel):
     @classmethod
     def load(cls, home: Path) -> "Settings":
         path = home / "roj.toml"
-        data = tomllib.loads(path.read_text("utf-8")) if path.exists() else {}
+        data = _read_toml(path) if path.exists() else {}
         return cls.model_validate(data)
+
+
+def _read_toml(path: Path) -> dict[str, Any]:
+    try:
+        return tomllib.loads(path.read_text("utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"{path}: {e}. Hint: in TOML a backslash starts an escape; write Windows paths with forward "
+                         "slashes (\"D:/roj-home\") or in single quotes ('D:\\roj-home').") from e
 
 
 class ModelBinding(BaseModel):
@@ -226,7 +234,7 @@ class ProjectSettings(BaseModel):
 
     @classmethod
     def load(cls, project_dir: Path) -> "ProjectSettings":
-        data = tomllib.loads((project_dir / "project.toml").read_text("utf-8"))
+        data = _read_toml(project_dir / "project.toml")
         return cls.model_validate(data)
 
 
