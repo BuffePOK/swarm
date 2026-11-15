@@ -1,0 +1,34 @@
+# Example blueprint: two teams and a guardian.
+# roj blueprint lint -p morning examples/blueprint.example.yaml
+# roj blueprint propose -p morning examples/blueprint.example.yaml   (then approve, activate, run)
+project: morning
+goal: Prepare a short macro note with verified facts
+acceptance: ["Every fact cites a source", "At most 300 words"]
+teams:
+  - name: research
+    goal: Collect the latest policy rate decisions with sources
+    acceptance: ["At least 1 source cited"]
+    mode: orchestrator
+    budget: {usd: 1.0}
+    members:
+      - {name: lead, role: orchestrator, model: claude-sonnet, fallbacks: [deepseek-pro]}
+      - {name: researcher, role: researcher, model: claude-sonnet, fallbacks: [deepseek-pro], knowledge: [macro], tools: [kb.search, calc]}
+  - name: brief
+    goal: Write the note from the research and verify it
+    acceptance: ["Every claim has a source", "Verifier status is done"]
+    mode: graph
+    depends_on: [research]
+    members:
+      - {name: writer, role: writer, model: claude-sonnet, fallbacks: [deepseek-pro], tools: []}
+      - {name: verifier, role: verifier, model: gemini-flash, fallbacks: [deepseek-pro], tools: []}
+    graph:
+      start: write
+      max_visits: 3
+      nodes:
+        - {id: write, member: writer, task: "Write the note using: {state.research}"}
+        - {id: verify, member: verifier, task: "Verify the draft: {state.write}"}
+      edges:
+        - {source: write, target: verify}
+        - {source: verify, target: write, when: "state['verify']['status'] != 'done'"}
+integration:
+  guardian: {name: guardian, role: guardian, model: gemini-flash, fallbacks: [deepseek-pro]}

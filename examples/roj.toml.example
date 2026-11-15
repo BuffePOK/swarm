@@ -1,0 +1,83 @@
+# Example roj.toml for a Windows laptop with a local OpenAI-compatible gateway.
+# Copy to %ROJ_HOME%\roj.toml (roj init creates a commented template) and replace model ids
+# with the exact ids your gateway returns: `roj models --refresh`.
+timezone = "Europe/Warsaw"
+
+[gateway]
+base_url = "http://localhost:8045/v1"
+api_key_env = "ROJ_API_KEY"
+timeout_s = 180
+
+[budget]
+tokens_per_day = 1000000
+usd_per_day = 5.0
+default_max_tokens = 4096
+
+[language]
+prompt_language = "pl"
+output_language = "en"
+
+[web]
+per_host_interval_s = 1.0
+respect_robots = true
+
+[notify]
+telegram_chat_id = "123456789"          # your chat id (see README: Telegram)
+telegram_token_env = "ROJ_TELEGRAM_TOKEN"
+
+# --- models per role: authors and reviewers from different families ----------------------
+[models.planner]          # bootstrap planning, blueprint leads
+model = "claude-opus"
+fallbacks = ["gemini-pro", "gpt-sol"]
+[models.critic]           # reviews the planner: another family
+model = "gpt-sol"
+fallbacks = ["gemini-pro"]
+[models.scout]            # discovery rounds (falls back to planner if unset)
+model = "gemini-flash"
+fallbacks = ["claude-sonnet"]
+[models.assessor]         # teacher labels: the strongest model you can afford for one day
+model = "claude-opus"
+fallbacks = ["gemini-pro"]
+[models.rulesmith]
+model = "claude-sonnet"
+fallbacks = ["gemini-flash"]
+[models.coder]
+model = "claude-sonnet"
+fallbacks = ["deepseek-pro"]
+[models.classifier]       # daily, cheap; often not called at all
+model = "gemini-flash-lite"
+fallbacks = ["deepseek-flash"]
+[models.analyst]          # daily: what happened and why it matters
+model = "claude-sonnet"
+fallbacks = ["gemini-pro", "deepseek-pro"]
+[models.checker]          # daily: verifies the analyst, another family
+model = "gemini-flash"
+fallbacks = ["gpt-terra"]
+
+# --- prices (USD per 1M tokens): fill in your gateway's real prices -------------------------
+[pricing]
+strict = false
+[pricing.default]
+input = 15.0
+output = 75.0
+[pricing.models."claude-opus*"]
+input = 5.0
+cached_input = 0.5
+output = 25.0
+[pricing.models."claude-sonnet*"]
+input = 3.0
+cached_input = 0.3
+output = 15.0
+[pricing.models."gemini-flash-lite*"]
+input = 0.1
+cached_input = 0.025
+output = 0.4
+[pricing.models."gemini-flash*"]
+input = 0.3
+cached_input = 0.075
+output = 2.5
+
+[permissions]
+# start with everything from T2 up on manual; flip later, e.g.:
+# "t2.activate_skill" = "manual"
+# "t3.publish_post" = "manual"

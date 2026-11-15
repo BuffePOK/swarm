@@ -1,0 +1,19 @@
+# ~/data/projects/lab/project.toml: the project in which roj improves roj.
+name = "lab"
+
+[budget]
+tokens_per_day = 1000000
+usd_per_day = 5.0
+
+# One self-improvement attempt every night, one study of models and prompts on Sunday night.
+[[schedules]]
+skill = "selfdev"
+at = "02:30"
+lead_minutes = 0
+
+[[schedules]]
+skill = "lab_study"
+at = "04:00"
+lead_minutes = 0
+days = ["sun"]
+inputs = { per_kind = 2, budget_tokens = 400000 }

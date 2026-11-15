@@ -1,0 +1,45 @@
+# ~/.config/containers/systemd/roj.container   (Quadlet, rootless Podman; same pattern as apigate)
+# Replace OWNER with your GitHub login in lowercase.
+[Unit]
+Description=roj (agent runtime: scheduler, Telegram, panel)
+After=network-online.target
+
+[Container]
+ContainerName=roj
+Image=ghcr.io/OWNER/roj:latest
+# CD: `podman auto-update` (timer, every 2 minutes) pulls a newer :latest and restarts this unit
+AutoUpdate=registry
+EnvironmentFile=/home/roj/roj.env
+# Data lives in ~/data on the host, owned by this Linux user (uid 10001 in the container = you outside),
+# so roj.toml and reports can be read and edited directly on the host.
+UserNS=keep-id:uid=10001,gid=10001
+Volume=/home/roj/data:/data
+# Backups to the bucket (SFTPGo mount). Uncomment and set [storage] backup_dir = "/backup" in roj.toml:
+# Volume=/mnt/roj-backup:/backup
+# Host network: roj reaches the gateway at http://127.0.0.1:18731/v1 like any local project, and the
+# panel listens only on 127.0.0.1:18732 of the host. roj opens no other port.
+Network=host
+
+# hardening
+ReadOnly=true
+Tmpfs=/tmp:size=512m
+DropCapability=ALL
+NoNewPrivileges=true
+PodmanArgs=--pids-limit=512 --cpus=1 --memory=2g --memory-swap=2g
+
+# "started" for systemd only when healthy -> a broken update is rolled back automatically
+Notify=healthy
+HealthCmd=roj healthcheck
+HealthInterval=60s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=30s
+StopTimeout=30
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
