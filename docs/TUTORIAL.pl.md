@@ -127,9 +127,14 @@ token roju nie wypchnie niczego prosto do `main`.
 sudo adduser --disabled-password --gecos "" roj
 sudo loginctl enable-linger roj
 grep ^roj: /etc/subuid /etc/subgid                         # → wklej (muszą być 2 wpisy)
-ls /etc/systemd/system/user@.service.d/delegate.conf       # istnieje od api-gate; jeśli nie: sekcja 6.3 tutorialu api-gate
+sudo cat /etc/systemd/system/user@.service.d/delegate.conf  # → wklej; oczekiwane: [Service] + Delegate=cpu cpuset io memory pids
+# jeśli "No such file": sudo mkdir -p /etc/systemd/system/user@.service.d
+#   printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+#   sudo systemctl daemon-reload
 sudo systemctl set-property user-$(id -u roj).slice CPUQuota=100% MemoryMax=2G MemorySwapMax=0 TasksMax=1024
 systemctl show user-$(id -u roj).slice -p CPUQuotaPerSecUSec -p MemoryMax    # → wklej
+sudo systemctl start user@$(id -u roj).service
+cat /sys/fs/cgroup/user.slice/user-$(id -u roj).slice/user@$(id -u roj).service/cgroup.controllers   # → wklej (musi zawierać cpu memory pids)
 ss -ltn | grep 18732 || echo "port 18732 wolny"
 sudo machinectl shell roj@
 ```
@@ -228,52 +233,79 @@ nano ~/data/roj.toml
 
 `[gateway] base_url = "http://127.0.0.1:18731/v1"` jest już ustawione (api-gate na tym hoście).
 
-### 6.2 Identyfikatory modeli
+### 6.2 Modele: ustawiasz tylko minimalny zespół
 
 ```bash
 systemctl --user restart roj.service
 roj models --refresh            # → wklej (lista id z bramki)
 ```
 
-Wpisz **dokładne** id z tej listy w sekcje `[models.<rola>]`. Role i zalecenia:
+**Nie przypisujesz modeli do ról agentów.** Agentów misji wymyśla Architekt i to on daje
+każdemu konkretny model i zamienniki z katalogu bramki. Katalog zbiera kod: tylko modele
+czatu (bez embeddingów, OCR i audio), z rodziną, ceną, oknem kontekstu i kartą Lab, jeśli
+badanie już było. Kod sprawdza każdy wybór (czy id istnieje, czy model z narzędziami przeszedł
+test tool calling), zanim plan trafi do Ciebie. W zatwierdzeniu etapu widzisz model każdego agenta.
 
-| rola | kto ją pełni | zalecenie |
-|---|---|---|
-| `architect` | Architekt misji: plan etapu, zespół | najsilniejszy model |
-| `critic` | Przewódca misji (jeśli projekt nie ma `[leader]`), recenzent diffów | silny, **inna rodzina niż `architect` i `coder`** |
-| `planner` | zapas dla Architekta, planista selfdev | silny |
-| `analyst` | domyślny agent etapu | średni |
-| `coder` | agent piszący kod w selfdev | najlepszy w kodzie |
-| `checker` | weryfikator | inna rodzina niż `analyst` |
-| `classifier` | tanie klasyfikacje | najtańszy sensowny |
-| `summarizer` | skracanie długich rozmów | tani, precyzyjny |
-| `researcher` | Lab: czytanie poradników dostawców | średni |
+Ty ustawiasz tylko to, czego Architekt nie może wybrać sam, czyli siebie i swojego kontrolera:
 
-Każda rola: `model = "…"` i `fallbacks = ["…", "…"]` (najlepiej z innej rodziny).
-`roj doctor` ostrzeże, jeśli recenzent jest z tej samej rodziny co autor.
+| sekcja | obowiązkowa | kto | zalecenie |
+|---|---|---|---|
+| `[models.architect]` | **tak** | Architekt: planuje etapy, projektuje zespoły, dobiera modele agentom | najsilniejszy model, któremu ufasz |
+| `[models.leader]` | **tak** | Przewódca: krytykuje plany, ocenia wyniki względem kryteriów | silny, **z innej rodziny niż Architekt** (inaczej obaj mylą się tak samo) |
+| `[models.cheap]` | zalecana | drobne prace wewnętrzne: streszczanie długich rozmów, egzaminy nowości wiedzy, klasyfikacje | tani i precyzyjny; bez tej sekcji te prace idą do Architekta (drogo) |
+
+Każda sekcja: `model = "…"` i `fallbacks = ["…"]` (zamiennik najlepiej z innej rodziny).
+Pozostałe role wewnętrzne roju (`coder` dla pull requestów, `planner`, `critic`, `summarizer`…)
+mają zastępców: `coder`/`planner` → `architect`, `critic`/`checker` → `leader`,
+`summarizer`/`classifier`/`examiner` → `cheap`. Nadpisujesz je tylko, gdy chcesz (np. osobny
+model do kodu: wzór w pliku przykładowym).
+
+Wzór z Twojej listy modeli (to **punkt startowy, nie pomiar**; części tych modeli nie znam, wyjdą
+w badaniu Lab w sekcji 12, a potem zmienisz to jedną linijką):
+
+```toml
+[models.architect]
+model = "anthropic/claude-opus-5-5"
+fallbacks = ["qwen/qwen4-max"]
+[models.leader]
+model = "deepseek/deepseek-v4-pro"
+fallbacks = ["mistral/mistral-large-4"]
+[models.cheap]
+model = "gemini/gemini-3.5-flash-lite"
+fallbacks = ["deepseek/deepseek-flash"]
+```
+
+Lidera danej misji możesz też zmienić w samym projekcie (`~/data/projects/<projekt>/project.toml`, sekcja `[leader]`).
 
 ### 6.3 Ceny (ważne)
 
-Model bez ceny jest liczony po celowo drogiej cenie domyślnej 15/75 USD za 1M tokenów. Przy
-limicie 5 USD dziennie na projekt jedno badanie Lab może wtedy zatrzymać się na budżecie
-(`paused_budget`) po kilkuset tysiącach tokenów. Ceny z bramki:
+Budżet (5 USD dziennie na projekt) liczy koszt z cen. Model bez ceny jest liczony po celowo
+drogiej cenie domyślnej 15/75 USD za 1M tokenów, a Architekt widzi go w katalogu jako
+„unknown price”, więc będzie go unikał. Ceny bierzesz z cennika bramki:
 
 ```bash
-exit                                          # z powrotem do [ADMIN]
-sudo machinectl shell apigate@
-podman exec apigate apigate models            # kolumna price=in/out (+markup)
-exit
+exit                                                          # z powrotem do [ADMIN]
+sudo install -o roj -g roj -m 644 /home/apigate/src/presets/prices.toml /home/roj/data/apigate-prices.toml
 sudo machinectl shell roj@
+roj pricing import /data/apigate-prices.toml                  # → wklej
+roj pricing show                                              # wszystkie modele czatu i cena, po jakiej roj je liczy
 ```
 
-i dla każdego używanego modelu w `roj.toml`:
+`import` zapisuje `~/data/pricing.toml` i wypisuje modele czatu, których cennik bramki nie zna
+(u Ciebie prawdopodobnie `mistral/*` i `qwen/*`, bo cennik api-gate ma tylko anthropic, deepseek,
+gemini i openai). Dla tych, które Architekt ma móc wybierać, dopisz cenę w `~/data/roj.toml`
+(wpisy z `roj.toml` mają pierwszeństwo przed importem):
 
 ```toml
-[pricing.models."<id albo wzorzec*>"]
-input = 3.0          # USD za 1M tokenów wejścia
-cached_input = 0.3   # jeśli dostawca daje rabat za cache; inaczej usuń linię
-output = 15.0
+[pricing.models."qwen/qwen4-max"]
+input = 2.0
+output = 8.0
+[pricing.models."mistral/*"]          # wzorzec: wszystkie modele dostawcy mistral
+input = 2.0
+output = 6.0
 ```
+
+Jeśli zmienisz ceny w panelu api-gate, zrób to samo w roju (ponowny `import` albo wpis w `roj.toml`).
 
 ### 6.4 Samodoskonalenie
 
@@ -296,7 +328,9 @@ dostawcy), `getMe` Telegrama i pobiera jeden publiczny kanał RSS.
 Oczekiwane: **zero `FAIL`**. Linie `WARN`, które na tym etapie są w porządku:
 `Telegram not configured` (jeśli pomijasz sekcję 7), `no [storage] backup_dir` (sekcja 10),
 `pull requests …: token … not set` (sekcja 14), `FRED_API_KEY not set` (dotyczy tylko
-przykładowego przeglądu rynków). Każde `no price for …` popraw w 6.3. W liniach `live`
+przykładowego przeglądu rynków), `N chat models for the Architect; M without a price` (jeśli
+świadomie zostawiasz część modeli bez ceny). `FAIL mission lead architect/leader` oznacza brak
+sekcji z 6.2. Każde `no price for …` przy modelach z 6.2 popraw w 6.3. W liniach `live`
 interesuje mnie: czas odpowiedzi, `usage reported` i `prompt cache yes/not reported`.
 
 ---
@@ -354,8 +388,10 @@ ssh -L 18732:127.0.0.1:18732 <admin>@<adres VPS>
 Na serwerze (w tej sesji): `sudo cat /home/roj/data/panel_token`. W przeglądarce na Windows:
 `http://127.0.0.1:18732/?token=<token>`.
 
-**Sprawdzenie:** strona się otwiera; zakładki zatwierdzeń, zadań, logów, raportów, budżetów.
-Misji w panelu jeszcze nie ma: misje obsługujesz z CLI, zatwierdzenia także z panelu i Telegramu.
+**Sprawdzenie:** strona się otwiera; lista projektów, a w projekcie: **Missions** (lista i
+formularz nowej misji), zatwierdzenia, zadania, raporty, budżety. Panel to pełne GUI misji
+(sekcja 13): start, pytania Architekta, etapy, zatwierdzenia, rozmowa z agentami. Wszystko,
+co robisz w panelu, da się też zrobić z CLI i odwrotnie (ten sam stan).
 
 ---
 
@@ -461,6 +497,19 @@ Agenci znają cel projektu z `docs/CONCEPT.md` (streszczenie dostaje każdy plan
 sekcję 22.5 tego pliku: tam są progi akceptacji, które zaproponowałem. Jeśli chcesz inne, zmień
 je w repozytorium **przed** pierwszą misją (plik jest chroniony przed agentami, nie przed Tobą).
 
+Misję prowadzisz **w panelu** (sekcja 9) albo z CLI; oba widzą ten sam stan, możesz je mieszać.
+
+**W panelu:** projekt `lab` → *New mission* → wpisz cel, wybierz tryb kontroli (`full` = rozmawiasz
+z każdym agentem i zatwierdzasz zadanie każdego agenta) → *Start*. Strona misji odświeża się
+sama co 10 s, dopóki coś pracuje. Na niej po kolei pojawiają się: co Architekt zrozumiał,
+**Questions** (pola z wartością domyślną, puste = domyślna), przycisk **Plan the next stage**,
+karty **Waiting for you** (Approve / Reject z planem etapu: cel, kryteria, zespół i model każdego
+agenta), tabela **Stages** z linkiem do raportu, mapa drogowa, wnioski, Twoje dyrektywy oraz
+**Talk** (wiadomość do Architekta, Przewódcy albo agenta). W Telegramie przychodzą te same
+zatwierdzenia z przyciskami.
+
+Ten sam przebieg w CLI:
+
 ### 13.1 Start
 
 ```bash
@@ -483,8 +532,9 @@ Bez odpowiedzi planowanie nie startuje (`roj mission next` kończy się kodem 2)
 ```bash
 roj mission next -p lab
 ```
-1. Architekt planuje etap; kod sprawdza plan (istniejące narzędzia i role, mierzalne kryteria,
-   brak narzędzi zmieniających kod); Przewódca krytykuje; do 3 rund.
+1. Architekt planuje etap i dobiera każdemu agentowi model z katalogu; kod sprawdza plan
+   (istniejące narzędzia, istniejące modele czatu, tool calling, mierzalne kryteria, brak
+   narzędzi zmieniających kod); Przewódca krytykuje; do 3 rund.
 2. Zadanie czeka: `t2.mission_stage`. W `roj approvals list -p lab` widzisz cel etapu, kryteria,
    zespół (agent, model, zadanie) i potrzeby.
 3. Zatwierdzasz → w trybie `full` każdy agent czeka jeszcze na `t2.mission_agent_run`
@@ -635,6 +685,8 @@ Playbook, wszystkie prompty i odpowiedzi z okresu. Bez kluczy i tokenów (sprawd
 | selfdev: `git clone` nie działa | `clone_url` w `[selfdev]`; repozytorium publiczne albo `ROJ_GITHUB_TOKEN` ustawiony |
 | selfdev: brak PR, jest tylko patch | brak `github_repo` albo `ROJ_GITHUB_TOKEN`; patch jest w `reports/` |
 | po scaleniu serwer ma stary kod | Actions zielone? `podman auto-update --dry-run`; `AutoUpdate=registry` w `roj.container` |
+| Architekt wybiera drogie albo słabe modele | `roj pricing show` (czy ceny są wpisane), `roj lab cards` (czy są karty); powiedz mu to: `roj chat --to architect "…"` (zostaje dyrektywą) |
+| `doctor --live`: `BadRequest … deprecated` / `top_p must be 1` | od v0.5.1 roj sam poprawia takie zapytanie i zapamiętuje poprawkę per model; `roj models --quirks` pokazuje, czego się nauczył, `--forget-quirks <model>` kasuje |
 | plan etapu odrzucony 3 razy | raport błędu w `roj logs show -p lab` (zdarzenia `mission.plan_revision`) → wklej |
 
 ---
@@ -648,14 +700,14 @@ Playbook, wszystkie prompty i odpowiedzi z okresu. Bez kluczy i tokenów (sprawd
 | 3 | `podman ps`: `roj` *healthy* | VPS | ☐ |
 | 4 | `roj selftest` 9/9 na serwerze | VPS | ☐ |
 | 5 | `roj doctor --live`: 0 FAIL, wszystkie modele odpowiadają | VPS | ☐ |
-| 6 | Ceny wszystkich używanych modeli wpisane (brak `no price for`) | `roj doctor` | ☐ |
+| 6 | `[models.architect]`, `[models.leader]` (różne rodziny), `[models.cheap]`; ceny zaimportowane, `roj pricing show` bez niespodzianek | `roj doctor` | ☐ |
 | 7 | `roj telegram test` dochodzi (jeśli używasz) | telefon | ☐ |
 | 8 | Timer auto-update aktywny, `--dry-run` widzi `roj` | VPS | ☐ |
 | 9 | Panel otwiera się przez tunel | Windows | ☐ |
 | 10 | `roj backup` tworzy plik w buckecie; test odtworzenia | VPS | ☐ |
 | 11 | `roj ask` zwraca odpowiedź z prawdziwymi licznikami tokenów | VPS | ☐ |
 | 12 | Małe badanie Lab: raport, zatwierdzenie, `roj lab playbook` v1 | VPS | ☐ |
-| 13 | Misja: pytania → odpowiedzi → etap 1 zatwierdzony → raport etapu | VPS | ☐ |
+| 13 | Misja w panelu: pytania → odpowiedzi → etap 1 zatwierdzony (z modelami agentów) → raport etapu | panel | ☐ |
 | 14 | `roj chat` z Architektem, Przewódcą i agentem (tryb `full`) | VPS | ☐ |
 | 15 | Selfdev: PR na GitHubie z zielonym CI | GitHub | ☐ |
 | 16 | Po scaleniu: rewizja działającego kontenera = sha scalenia | VPS | ☐ |

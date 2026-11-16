@@ -424,7 +424,7 @@ def _mission_plan(docs: dict[str, Any]) -> dict[str, Any]:
     n = docs["_inputs"].get("stage_number", 1)
     member = {"agent": "w-code-analyst", "summary": "Reads the repository and writes an overview into a knowledge pack",
               "instructions": "Czytasz repozytorium projektu i zapisujesz zwięzły opis jego struktury do pakietu wiedzy project-map.",
-              "binding": "analyst", "tools": ["repo.list", "kb.note"] + ([] if fixing else ["magic.wand"]),
+              "model": "fake-smart", "fallbacks": ["fake-smart-b"], "tools": ["repo.list", "kb.note"] + ([] if fixing else ["magic.wand"]),
               "task": "Opisz strukturę repozytorium i zapisz opis w pakiecie wiedzy project-map",
               "acceptance": ["W pakiecie project-map istnieje co najmniej 1 dokument"], "deliverable": "Wpis w pakiecie wiedzy project-map"}
     return {"charter": {"problem": "The project must understand itself before it can improve itself.",

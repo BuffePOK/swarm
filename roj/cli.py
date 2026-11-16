@@ -22,6 +22,7 @@ import json
 import logging
 import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__
@@ -92,9 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--timezone")
     pr.add_parser("list")
 
+    pz = sub.add_parser("pricing", help="model prices used by budgets").add_subparsers(dest="action", required=True)
+    pzi = pz.add_parser("import", help="import the gateway's price list (apigate presets/prices.toml format)")
+    pzi.add_argument("file")
+    pz.add_parser("show", help="chat models on the gateway with the price roj budgets them at")
+
     m = sub.add_parser("models", help="list models known to the gateway")
     m.add_argument("--refresh", action="store_true")
     m.add_argument("--unblock")
+    m.add_argument("--quirks", action="store_true", help="request fixes learned from providers' 400 errors, per model")
+    m.add_argument("--forget-quirks", nargs="?", const="*", metavar="MODEL", help="forget learned fixes (all, or one model)")
 
     a = sub.add_parser("ask", help="one model call through the full stack (budget, governor, log)")
     a.add_argument("-p", "--project", required=True)
@@ -385,6 +393,32 @@ async def _amain(args: argparse.Namespace) -> int:
                 p.close()
             else:
                 _print([{"project": n} for n in inst.project_names()], args.json)
+            return 0
+
+        if args.cmd == "pricing":
+            from .models.catalog import catalog_for, import_apigate_prices, write_pricing
+
+            if args.action == "import":
+                rows, default = import_apigate_prices(Path(args.file).read_text("utf-8"))
+                path = write_pricing(home, rows)
+                inst.close()
+                inst = Installation(home)  # reload settings with the imported prices
+                missing = [m["id"] for m in catalog_for(inst, inst.settings.pricing) if not m["price_known"]]
+                _print({"imported": len(rows), "file": str(path), "gateway_default_for_unlisted": default,
+                        "chat_models_still_without_price": missing,
+                        "next": "add [pricing.models.\"<id>\"] in roj.toml for the models above, or accept the expensive default"}, True)
+            else:
+                cat = catalog_for(inst, inst.settings.pricing)
+                _print([{"id": m["id"], "family": m["family"], "in": m["in"], "out": m["out"], "known": m["price_known"],
+                         "context": m["context"]} for m in cat], args.json)
+            return 0
+
+        if args.cmd == "models" and (args.quirks or args.forget_quirks):
+            qs = inst.client.quirks
+            if args.forget_quirks:
+                n = qs.forget(None if args.forget_quirks == "*" else args.forget_quirks)
+                print(f"forgot {n} model(s)")
+            _print(qs.all(), True)
             return 0
 
         if args.cmd == "models":

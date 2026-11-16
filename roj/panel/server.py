@@ -93,8 +93,9 @@ def md_to_html(md: str) -> str:
     return "\n".join(out)
 
 
-def page(title: str, body: str) -> bytes:
-    return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+def page(title: str, body: str, refresh: int | None = None) -> bytes:
+    meta = f"<meta http-equiv='refresh' content='{refresh}'>" if refresh else ""
+    return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>{meta}"
             f"<title>{esc(title)} · roj</title><style>{CSS}</style></head><body>"
             f"<p class='mut'><a href='/'>roj</a></p>{body}</body></html>").encode("utf-8")
 
@@ -175,11 +176,149 @@ class Panel:
         finally:
             p.close()
             inst.close()
-        body = (f"<h1>{esc(name)}</h1><h2>Approvals</h2>{appr}<h2>Tasks</h2><table><tr><th>Task</th><th>Workflow</th><th>Status</th>"
+        body = (f"<h1>{esc(name)}</h1>{self._missions_section(name)}<h2>Approvals</h2>{appr}<h2>Tasks</h2><table><tr><th>Task</th><th>Workflow</th><th>Status</th>"
                 f"<th>Updated</th></tr>{tasks}</table><h2>Skills</h2>{''.join(skills)}<h2>Briefs: rate them</h2><table>{rate_rows}</table>"
                 f"<h2>Reports</h2><ul>{rep}</ul><h2>Budget today</h2><table>{budget}</table>"
                 f"<h2>Quality gates</h2><table><tr><th>Suite</th><th>Metric</th><th>Threshold</th><th>Last</th><th>Cases</th></tr>{gates}</table>")
         return page(name, body)
+
+    # --- missions ---------------------------------------------------------------------
+    def _missions_section(self, name: str) -> str:
+        inst = Installation(self.home)
+        p = inst.project(name)
+        try:
+            rows = p.store.all("SELECT id, goal, status, control, updated FROM missions ORDER BY created DESC LIMIT 20")
+        finally:
+            p.close()
+            inst.close()
+        t = self.token
+        lst = "".join(f"<tr><td><a href='/p/{quote(name)}/mission/{r['id']}'>{r['id'][:8]}</a></td><td>{esc(r['status'])}</td>"
+                      f"<td>{esc(r['control'])}</td><td>{esc(r['goal'][:120])}</td><td>{esc(r['updated'][:16])}</td></tr>" for r in rows)
+        return (f"<h2>Missions</h2>" + (f"<table><tr><th>Mission</th><th>Status</th><th>Control</th><th>Goal</th><th>Updated</th></tr>{lst}</table>" if rows else "")
+                + f"<div class='card'><form method='post' action='/p/{quote(name)}/mission'><input type='hidden' name='token' value='{t}'>"
+                f"<b>New mission</b><br><textarea name='goal' rows='4' style='width:100%' placeholder='What do you want? The Architect will ask what is missing.'></textarea><br>"
+                f"control <select name='control'><option>full</option><option>partial</option><option selected>leads</option></select> "
+                f"<button>Start: the Architect reads the goal</button></form></div>")
+
+    def mission(self, name: str, mid: str) -> bytes:
+        from .. import mission as ms
+
+        inst = Installation(self.home)
+        p = inst.project(name)
+        try:
+            m = ms.load(p, mid)
+            mid = m["id"]
+            busy = [dict(r) for r in p.store.all(
+                "SELECT id, workflow, status FROM tasks WHERE status IN ('pending', 'running') AND inputs LIKE ? ORDER BY created",
+                (f'%"{mid}"%',))]
+            waiting = [a for a in p.policy.pending() if str(a["details"].get("mission", "")) == mid[:8]]
+            reports = sorted((p.dir / "reports").glob(f"mission-{mid[:8]}-stage-*.md")) if (p.dir / "reports").exists() else []
+        finally:
+            p.close()
+            inst.close()
+        t, base = self.token, f"/p/{quote(name)}/mission/{mid}"
+        form = lambda action, inner: (f"<form method='post' action='{base}/{action}'><input type='hidden' name='token' value='{t}'>"  # noqa: E731
+                                      f"{inner}</form>")
+        out = [f"<h1>Mission {mid[:8]}</h1><p><a href='/p/{quote(name)}'>{esc(name)}</a> · status <b>{esc(m['status'])}</b> · control "
+               + form("control", "<select name='control'>" + "".join(f"<option{' selected' if c == m['control'] else ''}>{c}</option>"
+                                                                       for c in ms.CONTROL) + "</select> <button>Switch</button>").replace("<form", "<form style='display:inline'")
+               + "</p>", f"<div class='card'><b>Goal</b><pre>{esc(m['goal'])}</pre>"
+               + (f"<b>The Architect understood</b><p>{esc(m['understanding'])}</p>" if m["understanding"] else "") + "</div>"]
+        if busy:
+            out.append("<div class='card'><b>Working</b> (this page refreshes every 10 s): "
+                       + ", ".join(f"<a href='/p/{quote(name)}/task/{b['id']}'>{esc(b['workflow'].rsplit(':', 1)[-1].lower())} {b['id'][:8]}</a> {esc(b['status'])}" for b in busy)
+                       + "</div>")
+        for a in waiting:
+            out.append(f"<div class='card'><b>Waiting for you: {esc(a['action'])}</b><pre>{esc(json.dumps(a['details'], ensure_ascii=False, indent=1)[:5000])}</pre>"
+                       f"<form method='post' action='/p/{quote(name)}/approval/{a['id']}'><input type='hidden' name='token' value='{t}'>"
+                       f"<input type='hidden' name='back' value='{base}'><input name='note' placeholder='note (optional)'> "
+                       f"<button name='decision' value='approve'>Approve</button> <button name='decision' value='reject'>Reject</button></form></div>")
+        qs = ms.open_questions(m)
+        if qs:
+            fields = "".join(f"<p><b>{esc(q['question'])}</b><br><span class='mut'>{esc(q.get('why', ''))}"
+                             + (f" · options: {esc(' | '.join(q['options']))}" if q.get("options") else "") + "</span><br>"
+                             f"<input name='q_{esc(q['id'])}' style='width:100%' placeholder='default: {esc(q.get('default') or '(none)')}'></p>" for q in qs)
+            out.append("<h2>Questions</h2><div class='card'>" + form("answer", fields + "<button>Answer (empty = default)</button>") + "</div>")
+        elif not busy and m["status"] in ("ready", "stage_done", "new"):
+            out.append("<div class='card'>" + form("next", "<button>Plan the next stage</button> <span class='mut'>the Architect plans, "
+                                                    "the Leader checks, then it waits for your approval</span>") + "</div>")
+        if m["stages"]:
+            rows = []
+            for st in m["stages"]:
+                rep_file = next((f.name for f in reports if f"-stage-{st['n']}-" in f.name), None)
+                team = "<br>".join(f"{esc(x['agent'])}: {esc(x.get('model', x.get('binding', '')))}" for x in st["plan"]["team"])
+                rows.append(f"<tr><td>{st['n']}</td><td>{esc(st['plan']['objective'])}</td><td>{team}</td><td>{esc(st['review']['verdict'])}</td>"
+                            f"<td>{f'<a href=/p/{quote(name)}/report/{quote(rep_file)}>report</a>' if rep_file else ''}</td></tr>")
+            out.append("<h2>Stages</h2><table><tr><th>#</th><th>Objective</th><th>Team (model)</th><th>Verdict</th><th></th></tr>" + "".join(rows) + "</table>")
+        if m["roadmap"]:
+            out.append("<h2>Roadmap</h2><ol>" + "".join(f"<li>{esc(x)}</li>" for x in m["roadmap"]) + "</ol>")
+        if m["lessons"] or m["directives"]:
+            out.append("<h2>Lessons and your directives</h2><ul>" + "".join(f"<li>{esc(x)}</li>" for x in m["lessons"][-12:])
+                       + "".join(f"<li><b>directive</b> ({esc(d['via'])}): {esc(d['text'])}</li>" for d in m["directives"]) + "</ul>")
+        targets = list(ms.LEADS)
+        for st in m["stages"]:
+            for x in st["plan"]["team"]:
+                try:
+                    ms.may_talk(m, x["agent"])
+                    targets.append(x["agent"])
+                except PermissionError:
+                    pass
+        threads = "".join(f"<div class='card'><b>{esc(to)}</b>" + "".join(f"<p><span class='mut'>{esc(msg['from'])}:</span> {esc(msg['text'])}</p>"
+                                                                       for msg in th[-6:]) + "</div>" for to, th in m["threads"].items())
+        out.append("<h2>Talk</h2>" + threads + "<div class='card'>" + form("chat", "to <select name='to'>" + "".join(
+            f"<option>{esc(x)}</option>" for x in dict.fromkeys(targets)) + "</select><br><textarea name='text' rows='3' style='width:100%'></textarea>"
+            "<br><button>Send</button> <span class='mut'>a message gets an answer, it executes nothing; "
+            "'always/never' instructions are kept as directives</span>") + "</div>")
+        return page(f"mission {mid[:8]}", "".join(out), refresh=10 if busy else None)
+
+    def _start(self, name: str, ref: str, inputs: dict[str, Any]) -> str:
+        inst = Installation(self.home)
+        p = inst.project(name)
+        try:
+            tid = p.kernel.submit(ref, inputs)
+        finally:
+            p.close()
+            inst.close()
+        threading.Thread(target=self._resume, args=(name, tid), daemon=True).start()
+        return tid
+
+    def mission_action(self, name: str, mid: str | None, action: str, form: dict[str, str]) -> str:
+        from .. import mission as ms
+
+        inst = Installation(self.home)
+        p = inst.project(name)
+        try:
+            if action == "start":
+                goal = form.get("goal", "").strip()
+                if len(goal) < 10:
+                    raise ValueError("describe the goal in at least one sentence")
+                mid = ms.create(p, goal, form.get("control", "leads"))
+                ref, inputs = ms.INTAKE_REF, {"mission": mid}
+            else:
+                m = ms.load(p, mid)
+                mid = m["id"]
+                ref = None
+                if action == "control":
+                    ms.set_control(p, mid, form.get("control", "leads"))
+                elif action == "answer":
+                    ms.answer(p, mid, {k[2:]: v.strip() for k, v in form.items() if k.startswith("q_") and v.strip()})
+                elif action == "next":
+                    if ms.open_questions(m):
+                        raise ValueError("answer the open questions first")
+                    ref, inputs = ms.STAGE_REF, {"mission": mid}
+                elif action == "chat":
+                    ms.may_talk(m, form.get("to", "leader"))
+                    if not form.get("text", "").strip():
+                        raise ValueError("empty message")
+                    ref, inputs = ms.CHAT_REF, {"mission": mid, "to": form.get("to", "leader"), "text": form["text"].strip()[:4000]}
+                else:
+                    raise KeyError(action)
+        finally:
+            p.close()
+            inst.close()
+        if ref:
+            self._start(name, ref, inputs)
+        return f"/p/{quote(name)}/mission/{mid}"
 
     def task(self, name: str, task_id: str) -> bytes:
         inst = Installation(self.home)
@@ -213,7 +352,9 @@ class Panel:
         inst = Installation(self.home)
         p = inst.project(name)
         try:
-            asyncio.run(p.kernel.resume(task_id))
+            asyncio.run(p.kernel.resume(task_id))  # a task already running elsewhere is skipped (TaskLocked)
+        except Exception:  # noqa: BLE001 - the task log and status tell the owner what happened
+            pass
         finally:
             p.close()
             inst.close()
@@ -273,6 +414,8 @@ def make_handler(panel: Panel):
                     return self._send(200, panel.project(parts[1]))
                 if parts[0] == "p" and len(parts) == 4 and parts[2] == "task":
                     return self._send(200, panel.task(parts[1], parts[3]))
+                if parts[0] == "p" and len(parts) == 4 and parts[2] == "mission":
+                    return self._send(200, panel.mission(parts[1], parts[3]))
                 if parts[0] == "p" and len(parts) == 4 and parts[2] == "report":
                     return self._send(200, panel.report(parts[1], parts[3]))
             except (FileNotFoundError, KeyError) as e:
@@ -288,13 +431,19 @@ def make_handler(panel: Panel):
                 return self._send(403, page("forbidden", "<h1>Forbidden</h1>"))
             parts = [p for p in urlsplit(self.path).path.split("/") if p]
             try:
+                if len(parts) == 3 and parts[0] == "p" and parts[2] == "mission":
+                    return self._redirect(panel.mission_action(parts[1], None, "start", form))
+                if len(parts) == 5 and parts[0] == "p" and parts[2] == "mission":
+                    return self._redirect(panel.mission_action(parts[1], parts[3], parts[4], form))
                 if len(parts) == 4 and parts[0] == "p" and parts[2] == "approval":
                     panel.decide(parts[1], parts[3], form)
+                    if form.get("back", "").startswith("/p/"):
+                        return self._redirect(form["back"])
                 elif len(parts) == 4 and parts[0] == "p" and parts[2] == "rate":
                     panel.rate(parts[1], parts[3], form)
                 else:
                     return self._send(404, page("not found", "<h1>Not found</h1>"))
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, PermissionError) as e:
                 return self._send(400, page("error", f"<h1>Error</h1><p>{esc(e)}</p>"))
             return self._redirect(f"/p/{parts[1]}")
 

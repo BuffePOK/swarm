@@ -41,6 +41,9 @@ class Installation:
         self.store = Store(self.home / "roj.db", GLOBAL_SCHEMA)
         self.events = EventLog(self.store)
         self.client = GatewayClient(self.settings.gateway, transport=transport)
+        from .models.quirks import QuirkStore
+
+        self.client.quirks = QuirkStore(self.store, self.events)
         self.registry = ModelRegistry(self.store, self.events, self.client)
         self.governor = Governor(self.settings.governor)  # shared by all projects in this process
         self._transport = transport

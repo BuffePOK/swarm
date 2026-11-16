@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "roj"
-version = "0.4.5"
+version = "0.5.1"
 description = "Multi-agent system with a stateless leader, teams, hard gates, budgets and an auditable kernel."
 readme = "README.md"
 license = "MIT"

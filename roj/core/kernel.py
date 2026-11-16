@@ -18,6 +18,7 @@ import logging
 import os
 import socket
 import sys
+import threading
 import traceback
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -46,6 +47,8 @@ class TaskStatus(StrEnum):
 
 log = logging.getLogger("roj.kernel")
 
+_ACTIVE: set[tuple[str, str]] = set()
+_ACTIVE_LOCK = threading.Lock()
 RESUMABLE = {TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL}
 PAUSED = {TaskStatus.PAUSED_BUDGET, TaskStatus.PAUSED_API}
 
@@ -242,11 +245,18 @@ class Kernel:
 
     async def run(self, task_id: str) -> TaskResult:
         """Run or continue a task. A readable log is (re)written whenever it stops."""
+        key = (str(self.project.dir), task_id)
+        with _ACTIVE_LOCK:  # the database lock compares pids; threads of one process (serve + panel) need this one
+            if key in _ACTIVE:
+                raise TaskLocked(f"task {task_id} is already running in this process")
+            _ACTIVE.add(key)
         token = CURRENT_TASK.set(task_id)
         try:
             return await self._run(task_id)
         finally:
             CURRENT_TASK.reset(token)
+            with _ACTIVE_LOCK:
+                _ACTIVE.discard(key)
             try:
                 self.project.write_task_log(task_id)
             except Exception:  # noqa: BLE001 - logging must never break the kernel

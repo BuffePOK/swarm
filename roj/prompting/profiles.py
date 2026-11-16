@@ -52,11 +52,18 @@ class PromptProfile:
 DEFAULT = PromptProfile()
 
 
+_MISTRAL = ("mistral", "ministral", "magistral", "codestral", "devstral", "voxtral", "pixtral", "leanstral", "labs-leanstral")
+_PREFIXES = ("claude", "gemini", "gemma", "gpt", "o1", "o3", "o4", "deepseek", "llama", "qwen", "grok", "glm", "zai-glm", "kimi",
+             "minimax", "fake-smart-b", "fake-smart")
+
+
 def family(model: str) -> str:
-    """Model family from an id such as 'google/gemini-3-flash' -> 'gemini'."""
+    """Who made the model, from an id such as 'qwen/deepseek-v4-pro' -> 'deepseek' (the gateway's provider prefix is
+    ignored: the same model served by two providers is one family, and errors are shared within a family)."""
     m = model.lower().split("/")[-1]
-    for fam in ("claude", "gemini", "gemma", "gpt", "deepseek", "llama", "qwen", "mistral", "grok", "glm", "kimi",
-                "fake-smart-b", "fake-smart"):
+    if m.startswith(_MISTRAL):
+        return "mistral"
+    for fam in _PREFIXES:
         if m.startswith(fam):
-            return fam
+            return {"zai-glm": "glm", "o1": "gpt", "o3": "gpt", "o4": "gpt"}.get(fam, fam)
     return m.split("-")[0]

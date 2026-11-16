@@ -30,7 +30,7 @@ from typing import Any
 from .fake_brains import respond
 
 DEFAULT_MODELS = ["fake-ok", "fake-cheap", "fake-blocked", "fake-ratelimit", "fake-flaky", "fake-auth", "fake-bad",
-                  "fake-smart", "fake-smart-b", "fake-sloppy", "fake-embed"]
+                  "fake-smart", "fake-smart-b", "fake-sloppy", "fake-embed", "fake-notemp", "fake-greedy"]
 
 
 class FakeState:
@@ -120,6 +120,12 @@ def _make_handler(state: FakeState):
                 return
             if model.startswith("fake-bad"):
                 self._send(400, {"error": {"message": "invalid request"}})
+                return
+            if model.startswith("fake-notemp") and "temperature" in body:  # like Claude Opus 5.5
+                self._send(400, {"error": {"message": "`temperature` is deprecated for this model.", "code": "upstream_rejected"}})
+                return
+            if model.startswith("fake-greedy") and body.get("temperature") == 0 and body.get("top_p") != 1:  # like Mistral Large 4
+                self._send(400, {"error": {"message": "top_p must be 1 when using greedy sampling.", "code": "upstream_rejected"}})
                 return
             if model.startswith("fake-flaky"):
                 with state.lock:

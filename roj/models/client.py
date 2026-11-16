@@ -63,6 +63,7 @@ class GatewayClient:
         self.settings = settings
         self.transport = transport
         self._clients: dict[int, httpx.AsyncClient] = {}
+        self.quirks: Any = None  # QuirkStore, set by the Installation
 
     def _client(self) -> httpx.AsyncClient:
         loop_id = id(asyncio.get_running_loop())
@@ -89,15 +90,26 @@ class GatewayClient:
         self, model: str, messages: list[dict[str, Any]], params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> ChatResponse:
-        body = {"model": model, "messages": messages, **(params or {})}
+        from .quirks import apply, diagnose
+
+        sent = apply(dict(params or {}), self.quirks.get(model) if self.quirks else None)
         t0 = time.monotonic()
-        try:
-            r = await self._client().post("chat/completions", content=canonical_json(body).encode("utf-8"),
-                                          headers=self._headers(headers))
-        except httpx.TimeoutException as e:
-            raise Timeout(model, None, f"timeout: {e}") from e
-        except httpx.TransportError as e:
-            raise Transient(model, None, f"transport: {e}") from e
+        for _ in range(4):  # at most 3 learned fixes per call
+            body = {"model": model, "messages": messages, **sent}
+            try:
+                r = await self._client().post("chat/completions", content=canonical_json(body).encode("utf-8"),
+                                              headers=self._headers(headers))
+            except httpx.TimeoutException as e:
+                raise Timeout(model, None, f"timeout: {e}") from e
+            except httpx.TransportError as e:
+                raise Transient(model, None, f"transport: {e}") from e
+            if r.status_code in (400, 422) and self.quirks is not None:
+                fix = diagnose(r.text)
+                if fix and apply(sent, fix) != sent:
+                    q = self.quirks.learn(model, fix, r.text)
+                    sent = apply(dict(params or {}), q)
+                    continue  # the provider told us what it wants: retry once with it
+            break
         latency = time.monotonic() - t0
         if r.status_code >= 400:
             raise classify(model, r.status_code, r.text, dict(r.headers))

@@ -52,7 +52,9 @@ ARCHITECT = (
     "jakich agentów, narzędzi, pakietów wiedzy, decyzji właściciela. Szczegółowo planujesz tylko najbliższy etap; dalsze etapy "
     "to krótka mapa drogowa, którą poprawiasz po każdym etapie. Opierasz się na faktach o projekcie z dokumentów, a nie na założeniach.")
 ARCH_RULES = ("Każdy agent ma jedno zadanie z mierzalnymi kryteriami i tylko te narzędzia, których potrzebuje.",
-              "Używaj wyłącznie narzędzi z dokumentu tools i ról modeli z dokumentu bindings.",
+              "Używaj wyłącznie narzędzi z dokumentu tools i modeli z dokumentu models (dokładne id).",
+              "Każdemu agentowi przypisz model i 1-2 zamienniki, najlepiej z innej rodziny; wybieraj najtańszy model, który według "
+              "kart Lab poradzi sobie z zadaniem; agentom z narzędziami dawaj modele z tool calling; model bez karty to ryzyko, nazwij je.",
               "Agenci misji czytają, analizują i budują wiedzę; zmiany w kodzie zgłaszasz jako change request, nie jako zadanie agenta.",
               "Jeśli brakuje decyzji właściciela, zadaj pytanie z opcjami i wartością domyślną zamiast zgadywać.")
 LEADER = (
@@ -84,7 +86,11 @@ class Member(BaseModel):
     agent: str = Field(pattern=r"^[a-z][a-z0-9-]{2,30}$")
     summary: str = Field(min_length=5, max_length=200)
     instructions: str = Field(min_length=40, max_length=2000)
-    binding: str = "analyst"
+    model: str = Field(min_length=3, max_length=120, description="exact id from the document models")
+    fallbacks: list[str] = Field(default_factory=list, max_length=3)
+
+    def binding(self) -> ModelBinding:
+        return ModelBinding(model=self.model, fallbacks=self.fallbacks)
     tools: list[str] = Field(default_factory=list, max_length=10)
     task: str = Field(min_length=15, max_length=600)
     acceptance: list[str] = Field(min_length=1, max_length=5)
@@ -191,16 +197,19 @@ def open_questions(m: dict[str, Any]) -> list[dict[str, Any]]:
 
 # --- context the leads see (built by code, no tokens) ------------------------------------------
 
+async def ensure_catalog(ctx: StepContext) -> None:
+    if not ctx.project.inst.store.one("SELECT COUNT(*) n FROM models WHERE status = 'available'")["n"]:
+        await ctx.project.inst.registry.refresh()  # first mission on a fresh installation
+
+
 def _bind(ctx: StepContext, *roles: str) -> ModelBinding:
     s = ctx.project.settings
-    if "leader" in roles and s.leader:
-        return s.leader
     for r in roles:
         try:
             return s.binding_for(r)
         except KeyError:
             continue
-    raise KeyError(f"bind one of these roles in roj.toml: {', '.join(roles)}")
+    raise KeyError(f"bind [models.{roles[0]}] in roj.toml (missions need [models.architect] and [models.leader])")
 
 
 def repo_of(ctx: StepContext):
@@ -214,25 +223,21 @@ def repo_of(ctx: StepContext):
 
 def facts(ctx: StepContext, m: dict[str, Any]) -> list[Document]:
     from .knowledge.packs import KnowledgeBase
-    from .lab.playbook import load_active, pb_dir
+    from .lab.playbook import load_active
 
-    s, home = ctx.project.settings, ctx.project.inst.home
+    from .models.catalog import chat_models, render
+
+    home = ctx.project.inst.home
     tools = [f"{t.name} [{t.tier}]: {t.summary}" for _, t in sorted(registry.all_tools().items()) if t.name not in CODE_WRITERS]
     packs = [f"{p['pack']}: {p['description']} ({p['docs']} docs)" for p in KnowledgeBase(ctx.project).packs()]
-    cards = []
-    for f in sorted((pb_dir(home) / "models").glob("*.json")):
-        c = json.loads(f.read_text("utf-8"))
-        if c.get("available", True):
-            cards.append(f"{c['model']}: score {c.get('score')}, tokens/case {c.get('tokens_per_case')}, tools {c.get('tool_calling')}")
     brief = {"goal": m["goal"], "answers": [{"q": q["question"], "a": q["answer"], "by": q.get("answered_by")} for q in m["qa"] if q.get("answer")],
              "owner_directives": m["directives"], "charter": m["charter"], "roadmap": m["roadmap"], "lessons": m["lessons"][-12:],
              "stages_done": [{"n": st["n"], "objective": st["plan"]["objective"], "verdict": (st.get("review") or {}).get("verdict"),
                               "summary": (st.get("review") or {}).get("summary", "")[:600]} for st in m["stages"]]}
     docs = [Document("mission", canonical_json(brief), "mission state"),
             Document("tools", "\n".join(tools), "tool registry"),
-            Document("bindings", ", ".join(sorted(s.models)) or "(none)", "roj.toml [models]"),
+            Document("models", render(chat_models(ctx.project)), "gateway catalog + prices + Lab cards (run `roj lab study` for cards)"),
             Document("knowledge", "\n".join(packs) or "(no knowledge packs yet)", "knowledge base"),
-            Document("models", "\n".join(cards) or "(no model cards yet: run `roj lab study`)", "lab study"),
             Document("playbook", canonical_json(load_active(home).profiles), "active Playbook")]
     repo = repo_of(ctx)
     if repo:
@@ -248,6 +253,7 @@ def facts(ctx: StepContext, m: dict[str, Any]) -> list[Document]:
 # --- intake ------------------------------------------------------------------------------------
 
 async def s_intake(ctx: StepContext) -> dict[str, Any]:
+    await ensure_catalog(ctx)
     m = load(ctx.project, ctx.inputs["mission"])
     task = TaskSpec(goal="Zrozum cel właściciela i ustal, czego brakuje do zaplanowania pierwszego etapu", deliverable="Intake JSON",
                     output_format="Wyłącznie JSON",
@@ -271,6 +277,9 @@ INTAKE_REF = "roj.mission:INTAKE"
 # --- one stage ---------------------------------------------------------------------------------
 
 def lint_stage(ctx: StepContext, st: StagePlan) -> list[str]:
+    from .models.catalog import chat_models
+
+    catalog = {m["id"]: m for m in chat_models(ctx.project) if not m["blocked"]}
     issues, known, seen = [], registry.all_tools(), set()
     for mem in st.team:
         if mem.agent in seen or mem.agent in LEADS:
@@ -281,10 +290,11 @@ def lint_stage(ctx: StepContext, st: StagePlan) -> list[str]:
                 issues.append(f"{mem.agent}: tool {t} does not exist (see document tools)")
             elif t in CODE_WRITERS:
                 issues.append(f"{mem.agent}: tool {t} changes code; raise a change request after the stage instead")
-        try:
-            ctx.project.settings.binding_for(mem.binding)
-        except KeyError:
-            issues.append(f"{mem.agent}: binding {mem.binding} is not in roj.toml [models] (see document bindings)")
+        for mid in [mem.model, *mem.fallbacks]:
+            if mid not in catalog:
+                issues.append(f"{mem.agent}: model {mid} is not an available chat model (use exact ids from document models)")
+            elif mem.tools and catalog[mid]["card"].get("tool_calling") is False:
+                issues.append(f"{mem.agent}: model {mid} failed the tool-calling probe but the agent uses tools")
         spec = TaskSpec(goal=mem.task, deliverable=mem.deliverable, acceptance=mem.acceptance, budget=BudgetSpec(tokens=1))
         issues += [f"{mem.agent}: {i.message}" for i in errors(lint_taskspec(spec))]
     return issues
@@ -295,6 +305,7 @@ async def s_plan(ctx: StepContext) -> dict[str, Any]:
     if open_questions(m):
         raise ValueError("the mission has unanswered questions: `roj mission answer` first")
     n = len(m["stages"]) + 1
+    await ensure_catalog(ctx)
     docs = facts(ctx, m)
     slot = Slot("mission-architect", RoleSpec("mission-architect", ARCHITECT, rules=ARCH_RULES), MissionPlan, max_tokens=4000)
     acceptance = ["Pole stage opisuje wyłącznie najbliższy etap, z zespołem najwyżej 5 agentów",
@@ -327,7 +338,7 @@ async def s_gate(ctx: StepContext) -> dict[str, Any]:
     p = ctx.results["plan"]
     st = p["plan"]["stage"]
     ctx.require("t2.mission_stage", {"mission": ctx.inputs["mission"][:8], "stage": p["n"], "objective": st["objective"],
-                                     "acceptance": st["acceptance"], "team": [f"{t['agent']} ({t['binding']}): {t['task']}" for t in st["team"]],
+                                     "acceptance": st["acceptance"], "team": [f"{t['agent']} ({t['model']}, fallbacks {', '.join(t['fallbacks']) or 'none'}): {t['task']}" for t in st["team"]],
                                      "needs": [f"{x['kind']}: {x['name']}" for x in st["needs"]], "leader": p["critique"]})
     return {"approved": True}
 
@@ -346,12 +357,12 @@ async def s_team(ctx: StepContext) -> dict[str, Any]:
                                                  "tools": mem.tools, "acceptance": mem.acceptance}, target=mem.agent)
 
         async def work(mem: Member = mem) -> dict[str, Any]:
-            role = RoleDef(name=mem.agent, summary=mem.summary, binding=mem.binding, tools=mem.tools, autonomy=Autonomy.L1,
+            role = RoleDef(name=mem.agent, summary=mem.summary, binding=mem.agent, tools=mem.tools, autonomy=Autonomy.L1,
                            instructions=mem.instructions)
             task = TaskSpec(goal=mem.task, deliverable=mem.deliverable, acceptance=mem.acceptance,
                             inputs={"stage_objective": st.objective}, budget=BudgetSpec(tokens=200_000))
             docs = [Document(f"result-{a}", canonical_json(r), a) for a, r in results.items()]
-            run = await run_agent(ctx, role=role, task=task, binding=ctx.project.settings.binding_for(mem.binding), agent_name=mem.agent,
+            run = await run_agent(ctx, role=role, task=task, binding=mem.binding(), agent_name=mem.agent,
                                   scope=f"team:mission/agent:{mem.agent}", documents=docs, max_steps=int(ctx.inputs.get("max_steps", 20)))
             return {**run.output.model_dump(), "steps": run.steps, "tools_used": [c.get("tool") or c.get("name") for c in run.tool_calls]}
         results[mem.agent] = await ctx.memo(f"agent:{mem.agent}", work)
@@ -403,7 +414,7 @@ async def s_close(ctx: StepContext) -> dict[str, Any]:
              "## Criteria", ""] + [f"- {c}" for c in p["plan"]["stage"]["acceptance"]] + ["", "## Team", ""]
     for mem in p["plan"]["stage"]["team"]:
         r = results.get(mem["agent"], {})
-        lines += [f"### {mem['agent']} ({mem['binding']})", "", f"Task: {mem['task']}", "", f"Result ({r.get('status')}, {r.get('steps')} steps, "
+        lines += [f"### {mem['agent']} ({mem['model']})", "", f"Task: {mem['task']}", "", f"Result ({r.get('status')}, {r.get('steps')} steps, "
                   f"confidence {r.get('confidence')}): {r.get('summary')}", ""]
     lines += ["## Leader's review", "", rv["summary"], ""] + [f"- evidence: {e}" for e in rv["evidence"]] + [f"- lesson: {x}" for x in rv["lessons"]]
     lines += [f"- question for the owner: {q['question']}" for q in rv["questions"]]
@@ -445,7 +456,7 @@ async def s_chat(ctx: StepContext) -> dict[str, Any]:
     mem = may_talk(m, to)
     persona = ARCHITECT if to == "architect" else LEADER if to == "leader" else mem["instructions"]
     binding = (_bind(ctx, "architect", "planner") if to == "architect" else _bind(ctx, "leader", "critic", "planner") if to == "leader"
-               else ctx.project.settings.binding_for(mem["binding"]))
+               else ModelBinding(model=mem["model"], fallbacks=mem.get("fallbacks", [])))
     thread = m["threads"].setdefault(to, [])
     brief = {"goal": m["goal"], "status": m["status"], "charter": m["charter"], "roadmap": m["roadmap"], "directives": m["directives"],
              "lessons": m["lessons"][-8:], "open_questions": [q["question"] for q in open_questions(m)],
