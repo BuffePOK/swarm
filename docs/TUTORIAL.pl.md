@@ -8,7 +8,7 @@ Wzór wdrożenia jest ten sam co w api-gate: GitHub buduje obraz, serwer co 2 mi
 pobiera. Żadnych kluczy SSH ani sekretów wdrożeniowych w GitHubie.
 
 > **Uczciwie o weryfikacji.** Kod i cały łańcuch (misja, Lab, samodoskonalenie, Telegram,
-> kopie, eksport) przetestowałem automatycznie offline: 117 testów oraz `roj selftest`.
+> kopie, eksport) przetestowałem automatycznie offline: 119 testów oraz `roj selftest`.
 > **Nie mogłem** zbudować obrazu, uruchomić Podmana, Quadleta ani połączyć się z prawdziwymi
 > modelami. Dlatego przy krokach oznaczonych **→ wklej** wklejaj mi wynik; poprawimy różnice.
 
@@ -102,7 +102,7 @@ Zakładka **Actions** → przebieg `ci`. Zadania:
 
 | zadanie | co robi | blokuje obraz |
 |---|---|---|
-| `test (ubuntu-latest, 3.11/3.12/3.13)` | blokada zależności, kontrola łańcucha dostaw, 117 testów | **tak** |
+| `test (ubuntu-latest, 3.11/3.12/3.13)` | blokada zależności, kontrola łańcucha dostaw, 119 testów | **tak** |
 | `test (windows-latest / macos-latest, …)` | to samo na innych systemach | nie (tylko informacja; nigdy tego nie sprawdzałem) |
 | `image` | buduje obraz, uruchamia go, `roj healthcheck`, `roj doctor`, **`roj selftest`**, wysyła do `ghcr.io` | – |
 

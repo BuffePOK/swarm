@@ -67,3 +67,41 @@ def test_git_output_with_non_ascii_survives(tmp_path):
     (tmp_path / "a.txt").write_text("Zażółć gęślą jaźń\n", encoding="utf-8")
     git(tmp_path, "add", "-A")
     assert "Zażółć gęślą jaźń" in git(tmp_path, "diff", "--cached")
+
+
+def test_remove_tree_clears_read_only_files(tmp_path, monkeypatch):
+    # Windows refuses to delete read-only files (git writes its objects read-only), CI on 2026-11-16.
+    import shutil
+
+    from roj.util import remove_tree
+
+    target = tmp_path / "tree"
+    (target / "objects").mkdir(parents=True)
+    locked = target / "objects" / "pack.idx"
+    locked.write_text("x", encoding="utf-8")
+    real_unlink = os.unlink
+    refused = []
+
+    def windows_like_unlink(path, *a, **kw):
+        if str(path).endswith("pack.idx") and os.stat(path, dir_fd=kw.get("dir_fd")).st_mode & 0o200 == 0:
+            refused.append(path)
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_unlink(path, *a, **kw)
+
+    os.chmod(locked, 0o444)
+    monkeypatch.setattr(os, "unlink", windows_like_unlink)
+    shutil.rmtree(target, ignore_errors=True)
+    assert target.exists() and refused  # the old way leaves the tree behind
+    assert remove_tree(target) is True and not target.exists()
+
+
+def test_remove_tree_removes_a_git_repository(tmp_path):
+    from roj.util import remove_tree
+
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+    (repo / "a.txt").write_text("a", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"],
+                   check=True, capture_output=True)
+    assert remove_tree(repo) is True and not repo.exists()

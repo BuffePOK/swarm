@@ -62,3 +62,39 @@ def estimate_tokens(text: str) -> int:
 
 def truncate(text: str, limit: int = 500) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def remove_tree(path, attempts: int = 5) -> bool:
+    """Delete a directory tree; True if it is gone.
+
+    On Windows git writes its object files read-only and a just-closed SQLite file or child
+    process can hold a handle for a moment, so plain shutil.rmtree leaves the tree behind.
+    Read-only flags are cleared and the removal is retried briefly.
+    """
+    import os
+    import shutil
+    import stat
+    import sys
+    import time
+    from pathlib import Path
+
+    p = Path(path)
+
+    def clear_and_retry(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
+            func(target)
+        except OSError:
+            pass  # the next attempt will try again
+
+    for i in range(attempts):
+        if not p.exists():
+            return True
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(p, onexc=clear_and_retry)
+        else:
+            shutil.rmtree(p, onerror=clear_and_retry)
+        if not p.exists():
+            return True
+        time.sleep(0.2 * (i + 1))
+    return not p.exists()

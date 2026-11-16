@@ -127,6 +127,7 @@ async def run_selftest(keep: bool = False) -> tuple[list[Result], Path]:
     from ..server import backup
     from ..testing.fake_gateway import start_fake_gateway
     from ..testing.fake_web import start_fake_web
+    from ..util import remove_tree
     from .export import export_bundle
 
     root = Path(tempfile.mkdtemp(prefix="roj-selftest-"))
@@ -262,7 +263,7 @@ async def run_selftest(keep: bool = False) -> tuple[list[Result], Path]:
             else:
                 os.environ[k] = v
         if not keep:
-            shutil.rmtree(root, ignore_errors=True)
+            remove_tree(root)
     return results, root
 
 
