@@ -52,7 +52,8 @@ roj mission next -p lab
 1. **Plan** (Architect): charter (problem, success criteria, constraints, out of scope), a
    roadmap of stage titles, and the next stage in detail: objective, criteria, needs
    (knowledge, tools, roles, decisions), and a team of at most 5 agents, each with
-   instructions, a model binding, tools, one task and measurable criteria.
+   instructions, a concrete model and fallbacks chosen from the gateway's catalog, tools, one task
+   and measurable criteria. You bind only the Architect, the Leader and a cheap model.
 2. **Lint** (code): tools exist, bindings exist, criteria are measurable, no code-writing tools.
    **Critique** (Leader, another model): approve or send back. Up to 3 rounds.
 3. **Your approval** of the stage (`t2.mission_stage`): you see objective, criteria, team and needs.
