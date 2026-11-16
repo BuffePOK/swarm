@@ -125,7 +125,10 @@ async def run_doctor(inst: "Installation", *, live: bool = False) -> list[Check]
                            "add [pricing.models.\"<id or glob>\"] input/cached_input/output (USD per 1M tokens)"))
 
     tg_token = os.environ.get(s.notify.telegram_token_env, "")
-    if tg_token and s.notify.telegram_chat_id:
+    if tg_token and str(s.notify.telegram_chat_id) == "123456789":
+        c.append(Check("telegram", "FAIL", "telegram_chat_id is the example value 123456789",
+                       "write any message to your bot, open https://api.telegram.org/bot<TOKEN>/getUpdates and copy chat.id"))
+    elif tg_token and s.notify.telegram_chat_id:
         c.append(Check("telegram", "PASS", f"token in {s.notify.telegram_token_env}, chat {s.notify.telegram_chat_id}"))
     else:
         c.append(Check("telegram", "WARN", "Telegram not configured: briefs are only written to reports/",
@@ -191,8 +194,9 @@ async def _live(inst: "Installation", models: list[str]) -> list[Check]:
             r1 = await inst.client.chat(m, msgs, {"max_tokens": 5, "temperature": 0})
             r2 = await inst.client.chat(m, msgs, {"max_tokens": 5, "temperature": 0})
             cache = "yes" if r2.usage.cached_tokens > 0 else "not reported"
+            q = inst.client.quirks.get(m) if inst.client.quirks else {}
             c.append(Check("live", "PASS", f"{m}: {r1.latency_s:.2f}s, usage {'estimated' if r1.usage.estimated else 'reported'}, "
-                           f"prompt cache {cache} ({r2.usage.cached_tokens} cached)"))
+                           f"prompt cache {cache} ({r2.usage.cached_tokens} cached)" + (f"; adapted request: {q}" if q else "")))
         except Exception as e:  # noqa: BLE001
             c.append(Check("live", "FAIL", f"{m}: {type(e).__name__}: {e}"[:300]))
     s = inst.settings
@@ -200,9 +204,16 @@ async def _live(inst: "Installation", models: list[str]) -> list[Check]:
     if token:
         try:
             async with httpx.AsyncClient(timeout=15) as cl:
-                r = await cl.get(f"{s.notify.telegram_api.rstrip('/')}/bot{token}/getMe")
+                r = await cl.post(f"{s.notify.telegram_api.rstrip('/')}/bot{token}/getMe", json={})
             ok = r.status_code == 200 and r.json().get("ok")
             c.append(Check("live", "PASS" if ok else "FAIL", f"Telegram getMe: {'bot ' + r.json()['result'].get('username', '') if ok else r.text[:150]}"))
+            if ok and s.notify.telegram_chat_id:
+                async with httpx.AsyncClient(timeout=15) as cl:
+                    r2 = await cl.post(f"{s.notify.telegram_api.rstrip('/')}/bot{token}/getChat", json={"chat_id": s.notify.telegram_chat_id})
+                ok2 = r2.status_code == 200 and r2.json().get("ok")
+                c.append(Check("live", "PASS" if ok2 else "FAIL", f"Telegram chat {s.notify.telegram_chat_id}: "
+                               + ("reachable" if ok2 else f"not reachable ({r2.text[:120]})"),
+                               "" if ok2 else "the bot can only write to a chat that has written to it first; check chat.id in getUpdates"))
         except Exception as e:  # noqa: BLE001
             c.append(Check("live", "FAIL", f"Telegram: {type(e).__name__}: {e}"[:200]))
     try:

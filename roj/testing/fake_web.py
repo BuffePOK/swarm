@@ -224,6 +224,10 @@ def _handler(state: FakeWebState):
                 if method == "getUpdates":
                     off = int(body.get("offset") or 0)
                     return ok([u for u in state.updates if u["update_id"] >= off])
+                if method == "getChat":
+                    if str(body.get("chat_id")) == "123456789":
+                        return self._send(400, b'{"ok": false, "description": "Bad Request: chat not found"}', "application/json")
+                    return ok({"id": body.get("chat_id"), "type": "private"})
                 if method == "getMe":
                     return ok({"id": 1, "is_bot": True, "username": "roj_test_bot"})
                 if method in ("answerCallbackQuery", "editMessageReplyMarkup"):

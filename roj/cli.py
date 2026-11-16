@@ -101,6 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser("models", help="list models known to the gateway")
     m.add_argument("--refresh", action="store_true")
     m.add_argument("--unblock")
+    m.add_argument("--quirks", action="store_true", help="request fixes learned from providers' 400 errors, per model")
+    m.add_argument("--forget-quirks", nargs="?", const="*", metavar="MODEL", help="forget learned fixes (all, or one model)")
 
     a = sub.add_parser("ask", help="one model call through the full stack (budget, governor, log)")
     a.add_argument("-p", "--project", required=True)
@@ -409,6 +411,14 @@ async def _amain(args: argparse.Namespace) -> int:
                 cat = catalog_for(inst, inst.settings.pricing)
                 _print([{"id": m["id"], "family": m["family"], "in": m["in"], "out": m["out"], "known": m["price_known"],
                          "context": m["context"]} for m in cat], args.json)
+            return 0
+
+        if args.cmd == "models" and (args.quirks or args.forget_quirks):
+            qs = inst.client.quirks
+            if args.forget_quirks:
+                n = qs.forget(None if args.forget_quirks == "*" else args.forget_quirks)
+                print(f"forgot {n} model(s)")
+            _print(qs.all(), True)
             return 0
 
         if args.cmd == "models":

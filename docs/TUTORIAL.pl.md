@@ -686,6 +686,7 @@ Playbook, wszystkie prompty i odpowiedzi z okresu. Bez kluczy i tokenów (sprawd
 | selfdev: brak PR, jest tylko patch | brak `github_repo` albo `ROJ_GITHUB_TOKEN`; patch jest w `reports/` |
 | po scaleniu serwer ma stary kod | Actions zielone? `podman auto-update --dry-run`; `AutoUpdate=registry` w `roj.container` |
 | Architekt wybiera drogie albo słabe modele | `roj pricing show` (czy ceny są wpisane), `roj lab cards` (czy są karty); powiedz mu to: `roj chat --to architect "…"` (zostaje dyrektywą) |
+| `doctor --live`: `BadRequest … deprecated` / `top_p must be 1` | od v0.5.1 roj sam poprawia takie zapytanie i zapamiętuje poprawkę per model; `roj models --quirks` pokazuje, czego się nauczył, `--forget-quirks <model>` kasuje |
 | plan etapu odrzucony 3 razy | raport błędu w `roj logs show -p lab` (zdarzenia `mission.plan_revision`) → wklej |
 
 ---

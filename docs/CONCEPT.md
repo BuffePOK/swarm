@@ -1,6 +1,6 @@
 # roj: the complete concept
 
-Version of this document: 2026-11-16, describes roj v0.5.0.
+Version of this document: 2026-11-16, describes roj v0.5.1.
 Owner-only file: agents read it, they do not edit it (it is a protected path). Changes to
 goals and rules come from the owner.
 
@@ -365,7 +365,8 @@ The class of the error decides, not its text:
 | 403 blocked | No retry; the model is blocked for hours; fall back immediately |
 | 401 auth | No retry; report |
 | 404 model gone | Mark gone; fall back |
-| 400 bad request | Raised to the caller: it is our bug |
+| 400 about a sampling or limit parameter (`temperature` deprecated, `top_p must be 1`, `max_completion_tokens`) | Fixed automatically: the client applies the fix the error names, retries, and remembers it for that model (`roj models --quirks`); messages, tools and schemas are never touched |
+| any other 400 bad request | Raised to the caller: it is our bug |
 
 A circuit breaker opens after repeated failures of one model. If every candidate fails, the
 task parks as `paused_api`, the owner is notified and the task resumes from its checkpoint later.
@@ -751,7 +752,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | `roj/cli.py`, `roj/config.py`, `roj/project.py`, `roj/contracts.py` | command line, settings, wiring, typed contracts |
 | `docs/` | this document, ADR-0001 to 0009, SERVER, WALKTHROUGH, FIRST_RUN, BACKLOG, architecture |
 | `deploy/podman/`, `Dockerfile`, `.github/workflows/ci.yml` | deployment |
-| `tests/` | 123 tests |
+| `tests/` | 127 tests |
 
 ---
 
@@ -759,7 +760,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 
 ### 21.1 What exists
 
-About 13,500 lines of library code, 123 tests, versions 0.1 to 0.5.0 written between
+About 13,500 lines of library code, 127 tests, versions 0.1 to 0.5.1 written between
 2026-11-06 and 2026-11-15 in one continuous design-and-build conversation between the owner
 and an AI assistant. Phases: kernel and model stack; the Morning brief with a research
 bootstrap; gates, Telegram, panel, knowledge packs, agent loop, Blueprint; then server
@@ -941,3 +942,4 @@ These are first targets, not the end. The owner sets the next ones.
 | 2026-11-15 | Owner: control modes from full to leads only; entry point is a goal to the Architect and the Leader, in stages; deployment like the gateway project (image in GitHub Packages, server pulls); "Meta" renamed. v0.4 |
 | 2026-11-15 | Owner asks for this document as the reference for the improvement loop. v0.4.1 |
 | 2026-11-16 | Owner: agents' roles are invented by the Architect, so the owner should not bind models per role. The owner binds only the Architect, the Leader and a cheap model; the Architect assigns models to agents from the gateway's catalog; missions in the web panel; prices imported from the gateway. v0.5.0 |
+| 2026-11-16 | First real `roj doctor --live` on the server: Claude Opus/Haiku 5.5 reject `temperature`, Mistral Large 4 requires `top_p = 1` for greedy sampling. The client now learns such request fixes per model from the provider's own 400 errors. v0.5.1 |
