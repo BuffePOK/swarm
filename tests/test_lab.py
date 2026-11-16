@@ -197,7 +197,8 @@ def test_selfdev_builds_gates_reviews_and_opens_a_pull_request(home, web, toy_re
     [res] = approve_all(project)
     assert res.status == TaskStatus.DONE, res.error
     assert res.results["publish"]["pull_request"] == "https://example.test/pull/1" and state.pulls[0]["head"] == b["branch"]
-    branches = subprocess.run(["git", "-C", str(remote), "branch", "--list"], capture_output=True, text=True).stdout
+    branches = subprocess.run(["git", "-C", str(remote), "branch", "--list"], capture_output=True, text=True,
+                              encoding="utf-8").stdout
     assert b["branch"] in branches
     report = open(res.results["publish"]["report"], encoding="utf-8").read()
     assert "[x] all tests pass" in report and "dropped: Loosen the permission checks" in report

@@ -42,3 +42,28 @@ def test_windows_paths_in_settings_get_a_clear_error(tmp_path):
     (tmp_path / "roj.toml").write_text('[storage]\nbackup_dir = "D:\\Users\\roj"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="forward slashes"):
         Settings.load(tmp_path)
+
+
+def test_every_text_subprocess_decodes_utf8():
+    # Windows decodes child output as cp1252 unless told otherwise; git diffs and test output are UTF-8.
+    # CI on 2026-11-16: `git diff` of a file with Polish letters came back as None on Windows.
+    import ast
+    from pathlib import Path
+
+    missing = []
+    for f in sorted(Path(__file__).resolve().parents[1].joinpath("roj").rglob("*.py")):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in ("run", "check_output", "Popen"):
+                kw = {k.arg for k in node.keywords}
+                if "text" in kw and "encoding" not in kw:
+                    missing.append(f"{f.name}:{node.lineno}")
+    assert missing == []
+
+
+def test_git_output_with_non_ascii_survives(tmp_path):
+    from roj.lab.selfdev import git
+
+    subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "a.txt").write_text("Zażółć gęślą jaźń\n", encoding="utf-8")
+    git(tmp_path, "add", "-A")
+    assert "Zażółć gęślą jaźń" in git(tmp_path, "diff", "--cached")

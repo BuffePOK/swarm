@@ -136,7 +136,8 @@ def files_list(ctx: "StepContext", path: str = ".") -> list[str]:
       side_effects="runs a process", timeout_s=120)
 async def shell_run(ctx: "StepContext", command: str, timeout_s: int = 60) -> dict:
     def go() -> dict:
-        r = subprocess.run(command, shell=True, cwd=_workspace(ctx), capture_output=True, text=True, timeout=min(timeout_s, 110))
+        r = subprocess.run(command, shell=True, cwd=_workspace(ctx), capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=min(timeout_s, 110))
         return {"exit": r.returncode, "stdout": r.stdout[-8000:], "stderr": r.stderr[-4000:]}
     return await asyncio.to_thread(go)
 

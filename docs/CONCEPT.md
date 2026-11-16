@@ -1,6 +1,6 @@
 # roj: the complete concept
 
-Version of this document: 2026-11-15, describes roj v0.4.3.
+Version of this document: 2026-11-15, describes roj v0.4.4.
 Owner-only file: agents read it, they do not edit it (it is a protected path). Changes to
 goals and rules come from the owner.
 
@@ -739,7 +739,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | `roj/cli.py`, `roj/config.py`, `roj/project.py`, `roj/contracts.py` | command line, settings, wiring, typed contracts |
 | `docs/` | this document, ADR-0001 to 0009, SERVER, WALKTHROUGH, FIRST_RUN, BACKLOG, architecture |
 | `deploy/podman/`, `Dockerfile`, `.github/workflows/ci.yml` | deployment |
-| `tests/` | 115 tests |
+| `tests/` | 117 tests |
 
 ---
 
@@ -747,7 +747,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 
 ### 21.1 What exists
 
-About 13,000 lines of library code, 115 tests, versions 0.1 to 0.4.3 written between
+About 13,000 lines of library code, 117 tests, versions 0.1 to 0.4.4 written between
 2026-11-06 and 2026-11-15 in one continuous design-and-build conversation between the owner
 and an AI assistant. Phases: kernel and model stack; the Morning brief with a research
 bootstrap; gates, Telegram, panel, knowledge packs, agent loop, Blueprint; then server

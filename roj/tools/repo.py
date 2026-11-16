@@ -56,7 +56,8 @@ def _writable(ctx: "StepContext", path: str) -> Path:
 def clean_env(repo: Path) -> dict[str, str]:
     """Environment for agent-written code: no API keys, no tokens, nothing named ROJ_*."""
     keep = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "LC_ALL", "TZ", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR")}
-    return {**keep, "PYTHONPATH": str(repo), "PYTHONDONTWRITEBYTECODE": "1", "HOME": str(repo), "ROJ_SELFDEV_SANDBOX": "1"}
+    return {**keep, "PYTHONPATH": str(repo), "PYTHONDONTWRITEBYTECODE": "1", "HOME": str(repo), "ROJ_SELFDEV_SANDBOX": "1",
+            "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}  # Windows would otherwise write cp1252
 
 
 _isolation: list[str] | None = None
@@ -79,7 +80,8 @@ def run_pytest(repo: Path, target: str = "", timeout_s: int = 600, extra: tuple[
     if target:
         cmd.append(target)
     try:
-        r = subprocess.run(cmd, cwd=repo, env=clean_env(repo), capture_output=True, text=True, timeout=timeout_s)
+        r = subprocess.run(cmd, cwd=repo, env=clean_env(repo), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout_s)
     except subprocess.TimeoutExpired:
         return {"exit": -1, "passed": 0, "failed": 0, "tail": f"timed out after {timeout_s}s", "network_isolated": bool(isolation_prefix())}
     out = (r.stdout + "\n" + r.stderr).strip()

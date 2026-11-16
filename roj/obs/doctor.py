@@ -164,7 +164,8 @@ async def run_doctor(inst: "Installation", *, live: bool = False) -> list[Check]
             p.close()
 
     if sys.platform == "win32":
-        r = subprocess.run(["schtasks", "/Query", "/TN", "roj scheduler"], capture_output=True, text=True)
+        r = subprocess.run(["schtasks", "/Query", "/TN", "roj scheduler"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         c.append(Check("scheduler", "PASS" if r.returncode == 0 else "WARN", "Windows task 'roj scheduler' " + ("found" if r.returncode == 0 else "missing"),
                        "" if r.returncode == 0 else "run `roj scheduler windows-task` and execute the printed commands"))
 

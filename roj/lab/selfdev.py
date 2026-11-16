@@ -85,7 +85,7 @@ class Review(BaseModel):
 
 
 def git(repo: Path, *args: str, check: bool = True, env: dict[str, str] | None = None) -> str:
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=120,
+    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})})
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:3])} failed: {(r.stderr or r.stdout).strip()[:400]}")

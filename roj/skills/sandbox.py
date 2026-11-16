@@ -118,7 +118,7 @@ def run_adapter(src: str, raw: str, base_url: str, *, timeout_s: float = 15.0) -
             env["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "")
         try:
             proc = subprocess.run(
-                [sys.executable, "-I", "-S", str(dpath / "harness.py"), str(dpath / "adapter.py")],
+                [sys.executable, "-I", "-S", "-X", "utf8", str(dpath / "harness.py"), str(dpath / "adapter.py")],
                 input=json.dumps({"raw": raw, "base_url": base_url}), capture_output=True, text=True,
                 encoding="utf-8", timeout=timeout_s, cwd=d, env=env,
                 preexec_fn=_limits if sys.platform != "win32" else None,
