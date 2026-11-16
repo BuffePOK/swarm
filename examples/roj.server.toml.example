@@ -34,44 +34,43 @@ novelty_threshold = 0.34
 [notify]
 telegram_chat_id = "123456789"
 
-# Replace ids with the exact ones from `roj models --refresh`.
-[models.architect]         # designs stages and teams in missions (falls back to planner)
-model = "claude-opus"
-fallbacks = ["gemini-pro"]
-[models.planner]
-model = "claude-opus"
-fallbacks = ["gemini-pro"]
-[models.critic]            # the Leader in missions (unless the project sets [leader]); reviews plans and diffs: another family
-model = "gpt-sol"
-fallbacks = ["gemini-pro"]
-[models.coder]
-model = "claude-sonnet"
-fallbacks = ["deepseek-pro"]
-[models.analyst]
-model = "claude-sonnet"
-fallbacks = ["gemini-pro"]
-[models.checker]
-model = "gemini-flash"
-fallbacks = ["gpt-terra"]
-[models.classifier]
-model = "gemini-flash-lite"
-fallbacks = ["deepseek-flash"]
-[models.summarizer]        # compaction of long agent conversations: cheap and precise
-model = "gemini-flash-lite"
-fallbacks = ["deepseek-flash"]
-[models.researcher]        # reads providers' prompting guides in the Meta study
-model = "gemini-flash"
-fallbacks = ["claude-sonnet"]
+# --- models -------------------------------------------------------------------------------
+# You bind only the minimal team. Every agent the Architect creates for a mission gets a
+# concrete model + fallbacks chosen by the Architect from the gateway's catalog (chat models,
+# prices, Lab cards: `roj pricing show`, `roj lab cards`). Ids: exact, from `roj models --refresh`.
+#
+# Required: the two leads, from DIFFERENT families (the Leader checks the Architect's work).
+[models.architect]          # plans stages, designs teams, picks models for agents
+model = "anthropic/claude-opus-5-5"
+fallbacks = ["qwen/qwen4-max"]
+[models.leader]             # critiques plans, reviews results against criteria
+model = "deepseek/deepseek-v4-pro"
+fallbacks = ["mistral/mistral-large-4"]
+# Recommended: a cheap, precise model for small internal jobs (summaries of long chats,
+# novelty exams, classifications). Without it they fall back to the architect (expensive).
+[models.cheap]
+model = "gemini/gemini-3.5-flash-lite"
+fallbacks = ["deepseek/deepseek-flash"]
+#
+# Optional overrides of roj's own internal roles (each falls back as shown):
+#   planner -> architect, coder -> architect, analyst -> architect, researcher -> architect,
+#   critic -> leader, checker -> leader, summarizer/classifier/examiner -> cheap -> architect
+# e.g. a dedicated coder for selfdev pull requests:
+# [models.coder]
+# model = "anthropic/claude-sonnet-5-5"
+# fallbacks = ["qwen/kimi-k2.7-code"]
 
+# --- prices (USD per 1M tokens) ------------------------------------------------------------
+# Import the gateway's price list once: `roj pricing import /data/apigate-prices.toml` (writes pricing.toml).
+# Add models the list does not cover here (entries here win). Unpriced models are budgeted at [pricing.default].
 [pricing]
 strict = false
 [pricing.default]
 input = 15.0
 output = 75.0
-# [pricing.models."claude-sonnet*"]
-# input = 3.0
-# cached_input = 0.3
-# output = 15.0
+# [pricing.models."qwen/qwen4-max"]
+# input = 2.0
+# output = 8.0
 
 [permissions]
 # Everything from T2 up waits for the owner. Flip one by one when the history justifies it:

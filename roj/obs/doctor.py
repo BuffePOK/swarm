@@ -22,11 +22,12 @@ import httpx
 
 from .. import __version__
 from ..config import ModelBinding, ProjectSettings
+from ..prompting.profiles import family
 
 if TYPE_CHECKING:
     from ..project import Installation
 
-PAIRS_DIFFERENT_FAMILY = [("planner", "critic"), ("architect", "critic"), ("analyst", "checker"), ("coder", "critic")]
+PAIRS_DIFFERENT_FAMILY = [("planner", "critic"), ("architect", "leader"), ("architect", "critic"), ("analyst", "checker"), ("coder", "critic")]
 
 
 @dataclass
@@ -35,14 +36,6 @@ class Check:
     status: str  # PASS | WARN | FAIL | INFO
     detail: str
     hint: str = ""
-
-
-def family(model: str) -> str:
-    m = model.lower().split("/")[-1]
-    for fam in ("claude", "gemini", "gemma", "gpt", "deepseek", "llama", "qwen", "mistral", "grok", "fake-smart-b", "fake-smart"):
-        if m.startswith(fam):
-            return fam
-    return m.split("-")[0]
 
 
 def _bindings(inst: "Installation") -> dict[str, dict[str, ModelBinding]]:
@@ -79,6 +72,7 @@ async def run_doctor(inst: "Installation", *, live: bool = False) -> list[Check]
     available: set[str] = set()
     try:
         models = await inst.client.list_models()
+        await inst.registry.refresh()  # the catalog the Architect sees is built from the registry
         available = {str(m.get("id")) for m in models}
         c.append(Check("gateway", "PASS", f"{s.gateway.base_url} answers: {len(available)} models"))
     except Exception as e:  # noqa: BLE001
@@ -110,6 +104,20 @@ async def run_doctor(inst: "Installation", *, live: bool = False) -> list[Check]
             if ra and rb and family(ra.model) == family(rb.model):
                 c.append(Check("models", "WARN", f"{scope}: {a} and {bb} are both {family(ra.model)}",
                                "use another model family for the reviewer so errors are not shared"))
+    for lead in ("architect", "leader"):
+        has = lead in s.models or (lead == "architect" and "planner" in s.models) or (lead == "leader" and "critic" in s.models)
+        c.append(Check("models", "PASS" if has else "FAIL", f"mission lead {lead}: " + ("bound" if has else "not bound"),
+                       "" if has else f"add [models.{lead}] model = \"<id>\" fallbacks = [...] to roj.toml"))
+    if available:
+        from ..models.catalog import catalog_for
+
+        cat = catalog_for(inst, s.pricing)
+        unpriced = [x["id"] for x in cat if not x["price_known"]]
+        c.append(Check("pricing", "INFO" if not unpriced else "WARN",
+                       f"{len(cat)} chat models for the Architect; {len(unpriced)} without a price"
+                       + (f" (e.g. {', '.join(unpriced[:4])})" if unpriced else ""),
+                       "" if not unpriced else "`roj pricing import <apigate prices.toml>`, then add the rest in roj.toml; "
+                       "unpriced models are budgeted at [pricing.default]"))
     for m in sorted(distinct):
         _, known = s.pricing.price_for(m)
         if not known:

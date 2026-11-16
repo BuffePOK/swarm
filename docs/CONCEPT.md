@@ -1,6 +1,6 @@
 # roj: the complete concept
 
-Version of this document: 2026-11-15, describes roj v0.4.5.
+Version of this document: 2026-11-16, describes roj v0.5.0.
 Owner-only file: agents read it, they do not edit it (it is a protected path). Changes to
 goals and rules come from the owner.
 
@@ -220,9 +220,9 @@ Installation (ROJ_HOME; on the server ~/data of the Linux user roj)
 | Actor | What it is | Status |
 |---|---|---|
 | **Owner** | The human. Highest authority. His corrections and directives outrank any plan | - |
-| **Architect** | Model role that designs the way to a goal: stages, teams, roles, tools, knowledge, models per agent. Binding `architect`, else `planner` | [built] in missions |
-| **Leader** | Model role answerable for the result: critiques plans, reviews stage results against criteria with evidence, records lessons. Per-project `[leader]`, else `leader`, `critic`, `planner`. Should be another model family than the Architect | [built] in missions |
-| **Workers** | Agents defined by the Architect for a stage: name, instructions, model binding, tools, one task, measurable criteria | [built] |
+| **Architect** | Model role that designs the way to a goal: stages, teams, roles, tools, knowledge, and a concrete model per agent. The owner binds it as `[models.architect]` | [built] in missions |
+| **Leader** | Model role answerable for the result: critiques plans, reviews stage results against criteria with evidence, records lessons. Per-project `[leader]`, else `[models.leader]`. Must be another model family than the Architect (the doctor warns) | [built] in missions |
+| **Workers** | Agents defined by the Architect for a stage: name, instructions, a concrete model and fallbacks chosen from the gateway's catalog, tools, one task, measurable criteria | [built] |
 | **Guardian** | Consistency checker for multi-module projects; sees contracts, outputs, contract tests and a one-page report, never the inside of a module | [partial] exists in the Blueprint runner; contract tests and glossary are planned |
 | **Lab** | Internal team that measures models and prompt knobs and maintains the Playbook. (Formerly called "Meta team"; renamed because it has nothing to do with the company Meta) | [built] as a workflow |
 | **Librarian, rewriter, reranker, summarizer, examiner** | Small helper roles around knowledge and context | [built] as slots |
@@ -278,9 +278,11 @@ This is the entry point of all new work. [built]
 5. **Stage.** `roj mission next` runs one stage as a durable workflow:
    1. **Plan** (Architect): a charter (problem, success criteria, constraints, out of scope),
       a roadmap of 1 to 10 stage titles, and the next stage in detail: objective, criteria,
-      needs (knowledge, tool, role, access, decision, data), a team of at most 5 agents, risks.
-   2. **Lint** (code): agent names unique, tools exist, bindings exist, each task has
-      measurable criteria, no code-writing tools. **Critique** (Leader). Failures go back to
+      needs (knowledge, tool, role, access, decision, data), a team of at most 5 agents, each with
+      a concrete model and fallbacks from the catalog, risks.
+   2. **Lint** (code): agent names unique, tools exist, models exist in the catalog and can call
+      tools when the agent uses tools, each task has measurable criteria, no code-writing tools.
+      **Critique** (Leader). Failures go back to
       the Architect; at most 3 rounds, then the stage fails loudly.
    3. **Gate**: the owner approves the stage (`t2.mission_stage`). Nothing runs before that.
    4. **Team**: agents run in order; each receives the earlier agents' results. In `full`
@@ -296,9 +298,12 @@ This is the entry point of all new work. [built]
    an answer and executes nothing. A standing instruction ("always", "never") is stored as a
    directive that every later planning and review step receives.
 
+**Interfaces** [built]: the web panel (start a mission, answer questions, plan the next stage,
+approve, see stages and reports, talk to agents) and the CLI share one state; Telegram carries approvals.
+
 **Known limits of the mission layer** [partial]: agents of a stage run sequentially and do not
-message each other; a stage team is not yet run through a Blueprint mode; missions are not in
-the web panel; stages are started by the owner, not automatically.
+message each other; a stage team is not yet run through a Blueprint mode; stages are started by
+the owner, not automatically.
 
 ---
 
@@ -371,8 +376,15 @@ task parks as `paused_api`, the owner is notified and the task resumes from its 
 
 - **Client** [built]: minimal OpenAI-compatible (chat completions, embeddings, model list).
   No provider SDKs and no LiteLLM in the core (ADR-0001).
-- **Binding** [built]: `model` plus `fallbacks`, per role, installation-wide with per-project
-  and per-skill overrides.
+- **Binding** [built]: `model` plus `fallbacks`. The owner binds only the minimal team: `architect`, `leader`
+  and (recommended) `cheap`. roj's internal roles stand in for each other (`coder`/`planner`/`analyst` ->
+  `architect`, `critic`/`checker` -> `leader`, `summarizer`/`classifier`/`examiner` -> `cheap`) unless bound.
+- **Catalog** [built]: chat models on the gateway (embeddings, OCR, audio excluded; the gateway's `kind`
+  is used when reported), with family, price, context window and Lab card. The Architect picks a
+  concrete model and fallbacks for every agent from it; the stage linter rejects unknown ids and
+  models that failed the tool-calling probe for agents with tools.
+- **Prices** [built]: `roj pricing import` reads the gateway's price list (apigate format) into
+  `pricing.toml`; `roj.toml` entries win; unpriced models are budgeted at an expensive default.
 - **Governor** [built]: client-side flow control (additive increase, multiplicative decrease
   on latency or errors) so agents never flood the shared gateway. No fixed priority between bots and agents.
 - **Exact cache** [built]: at temperature 0 an identical request is answered locally for zero tokens.
@@ -721,7 +733,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | Path | Content |
 |---|---|
 | `roj/core/` | store (SQLite), event log, content store, budgets, policy, kernel, message bus |
-| `roj/models/` | gateway client, error classes, governor, registry, the full call stack |
+| `roj/models/` | gateway client, error classes, governor, registry, catalog for the Architect, the full call stack |
 | `roj/prompting/` | templates (pl/en), compiler, linter, profiles |
 | `roj/agents/` | tool-calling agent loop, role registry, compaction |
 | `roj/tools/` | registry with generated cards, built-in tools, repository tools |
@@ -739,7 +751,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | `roj/cli.py`, `roj/config.py`, `roj/project.py`, `roj/contracts.py` | command line, settings, wiring, typed contracts |
 | `docs/` | this document, ADR-0001 to 0009, SERVER, WALKTHROUGH, FIRST_RUN, BACKLOG, architecture |
 | `deploy/podman/`, `Dockerfile`, `.github/workflows/ci.yml` | deployment |
-| `tests/` | 119 tests |
+| `tests/` | 123 tests |
 
 ---
 
@@ -747,7 +759,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 
 ### 21.1 What exists
 
-About 13,000 lines of library code, 119 tests, versions 0.1 to 0.4.5 written between
+About 13,500 lines of library code, 123 tests, versions 0.1 to 0.5.0 written between
 2026-11-06 and 2026-11-15 in one continuous design-and-build conversation between the owner
 and an AI assistant. Phases: kernel and model stack; the Morning brief with a research
 bootstrap; gates, Telegram, panel, knowledge packs, agent loop, Blueprint; then server
@@ -770,7 +782,7 @@ container deployment.
    that differ between families, long answers, slow responses, partial outages.
 3. `roj serve` runs long tasks inside its tick, so Telegram clicks wait until a study or a stage ends.
 4. Mission stage teams are sequential; agents cannot message each other; no Blueprint mode is used.
-5. The mission layer has no web panel view; the owner works through CLI, Telegram and report files.
+5. The Architect's model choices rest on prices and Lab cards; without a study it picks from names and prices only.
 6. The knowledge router gates on term coverage only; cross-language or paraphrased matches can be missed.
 7. Prompt profiles are per model family, not per task kind, and a fallback model receives the primary model's profile.
 8. Six prompt knobs is a small space; the eval cases are synthetic and short, so a profile
@@ -778,7 +790,7 @@ container deployment.
 9. Leader routing by difficulty, model events, calibration and batch mode are not built.
 10. Six of ten team modes, cycles with retros, remote nodes, browser and desktop hands are not built.
 11. Selfdev tests are not network-isolated where the kernel forbids unprivileged namespaces.
-12. The Leader and Architect default to the `critic` and `planner` bindings; nothing enforces that they are different families.
+12. That the Architect and the Leader are different families is only warned about by the doctor, not enforced.
 13. The repository has no generated description of its own modules beyond first docstring lines; agents must read code to understand it.
 14. Only one change per selfdev run and a 400-line limit: safe, and slow.
 
@@ -928,3 +940,4 @@ These are first targets, not the end. The owner sets the next ones.
 | 2026-11-15 | Owner: server exists (VPS, gateway, bucket, PostgreSQL); no local tests; the pilot becomes roj improving roj; selective knowledge, shared knowledge per speciality, no storing of known facts, shortening of long chats. v0.3 |
 | 2026-11-15 | Owner: control modes from full to leads only; entry point is a goal to the Architect and the Leader, in stages; deployment like the gateway project (image in GitHub Packages, server pulls); "Meta" renamed. v0.4 |
 | 2026-11-15 | Owner asks for this document as the reference for the improvement loop. v0.4.1 |
+| 2026-11-16 | Owner: agents' roles are invented by the Architect, so the owner should not bind models per role. The owner binds only the Architect, the Leader and a cheap model; the Architect assigns models to agents from the gateway's catalog; missions in the web panel; prices imported from the gateway. v0.5.0 |

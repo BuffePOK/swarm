@@ -187,6 +187,11 @@ class Settings(BaseModel):
     def load(cls, home: Path) -> "Settings":
         path = home / "roj.toml"
         data = _read_toml(path) if path.exists() else {}
+        imported = Path(home) / "pricing.toml"  # written by `roj pricing import`; roj.toml entries win
+        if imported.exists():
+            extra = _read_toml(imported).get("models", {})
+            pricing = data.setdefault("pricing", {})
+            pricing["models"] = {**extra, **pricing.get("models", {})}
         return cls.model_validate(data)
 
 
@@ -196,6 +201,16 @@ def _read_toml(path: Path) -> dict[str, Any]:
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f"{path}: {e}. Hint: in TOML a backslash starts an escape; write Windows paths with forward "
                          "slashes (\"D:/roj-home\") or in single quotes ('D:\\roj-home').") from e
+
+
+# Internal roles of roj's own workflows and who stands in when the owner has not bound them.
+# Agents of a mission are not here: the Architect gives each of them a concrete model from the gateway's catalog.
+ROLE_STANDINS: dict[str, list[str]] = {
+    "architect": ["planner"], "planner": ["architect"], "leader": ["critic"], "critic": ["leader"],
+    "checker": ["leader"], "coder": ["architect"], "analyst": ["architect"], "researcher": ["architect"],
+    "cheap": ["architect"], "summarizer": ["cheap"], "classifier": ["cheap"], "examiner": ["cheap"], "librarian": ["cheap"],
+    "rewriter": ["cheap"], "reranker": ["cheap"],
+}
 
 
 class ModelBinding(BaseModel):
@@ -262,13 +277,25 @@ class EffectiveSettings(BaseModel):
     selfdev: SelfdevSettings = SelfdevSettings()
 
     def binding_for(self, role: str, skill: str | None = None) -> ModelBinding:
-        """Skill-specific binding > project role binding > installation role binding."""
+        """Skill-specific binding > project role binding > installation role binding > the role's stand-in
+        (ROLE_STANDINS: only `architect` and `leader` must be configured; `cheap` is recommended)."""
         if skill:
             raw = (self.skills.get(skill, {}).get("models") or {}).get(role)
             if raw:
                 return ModelBinding.model_validate(raw)
-        if role in self.models:
-            return self.models[role]
+        if role == "leader" and self.leader:
+            return self.leader
+        seen, todo = set(), [role]
+        while todo:
+            r = todo.pop(0)
+            if r in seen:
+                continue
+            seen.add(r)
+            if r in self.models:
+                return self.models[r]
+            if r == "leader" and self.leader:
+                return self.leader
+            todo += ROLE_STANDINS.get(r, [])
         raise KeyError(
             f"no model bound to role {role!r}"
             + (f" for skill {skill!r}" if skill else "")

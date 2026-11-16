@@ -8,7 +8,7 @@ checkpoint, every model call is budgeted in tokens **and** money, every external
 goes through owner-controlled permission flags, and everything is written to a
 tamper-evident event log.
 
-> **Status: v0.4.5, 119 tests, verified offline only (fake gateway); not yet run against real models.**
+> **Status: v0.5.0, 123 tests, verified offline only (fake gateway); not yet run against real models.**
 > Server install (rootless Podman, image from GitHub Packages, auto-update): [docs/SERVER.md](docs/SERVER.md).
 > **Start here:** [docs/TUTORIAL.pl.md](docs/TUTORIAL.pl.md), from the zip to a running server and the first mission, with a check after every step (`roj selftest` verifies an installation offline).
 > From zero to the first mission, step by step: [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).
