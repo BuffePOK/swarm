@@ -274,6 +274,17 @@ def render_report(ctx: StepContext, pb: pbk.Playbook, cards: dict[str, dict[str,
             f"{'CONFIRMED' if c['confirmed'] else 'not confirmed, default kept'}" for f, c in conf["holdout"].items()] or ["- nothing was adopted"]
     out += ["", "## Proposed prompt profiles", ""]
     out += [f"- {f}: {k}" for f, k in pb.profiles.items()] or ["- no change: the default profile stays for every family"]
+    fails = [(k, t) for k, t in sorted(trials.items()) if t["score"] < 1 and t.get("sample") is not None]
+    if fails:
+        out += ["", "## Failed baseline answers (first 400 characters; why a model lost points)", ""]
+        shown: dict[str, int] = {}
+        for k, t in fails:
+            m = k.split("|")[0]
+            if shown.get(m, 0) >= 2:
+                continue
+            shown[m] = shown.get(m, 0) + 1
+            sample = t["sample"].replace("\n", " ").replace("|", "/")
+            out.append(f"- {k} (score {t['score']}, valid JSON {'yes' if t['valid'] else 'no'}): `{sample}`")
     out += ["", "## Read, not yet tested (hypotheses with sources)", ""]
     out += [f"- [{r.scope}] {r.claim} ({r.source})" + (f" -> knob {r.knob}={r.value}" if r.knob else "") for r in pb.rules if r.status == "hypothesis"]
     out += [f"- skipped source: {s}" for s in res["skipped"]]

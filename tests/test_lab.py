@@ -274,3 +274,35 @@ def test_selftest_passes_offline():
     results, root = asyncio.run(run_selftest())
     assert [r.name for r in results if not r.ok] == [] and len(results) == 9
     assert not root.exists()  # the throwaway home is removed
+
+
+def test_old_database_gets_new_columns_without_losing_rows(tmp_path):
+    import sqlite3
+
+    from roj.core.store import Store
+
+    db = tmp_path / "old.db"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE t(id TEXT PRIMARY KEY, a TEXT NOT NULL)")
+    c.execute("INSERT INTO t VALUES('x', 'kept')")
+    c.commit()
+    c.close()
+    new = ("CREATE TABLE IF NOT EXISTS t(id TEXT PRIMARY KEY, a TEXT NOT NULL, b TEXT, n INTEGER NOT NULL DEFAULT 0);"
+           "CREATE INDEX IF NOT EXISTS t_b ON t(b);")
+    s = Store(db, new)
+    assert s.migrated == ["t.b added", "t.n added"]
+    assert dict(s.one("SELECT * FROM t")) == {"id": "x", "a": "kept", "b": None, "n": 0}
+    s.close()
+    assert Store(db, new).migrated == []  # idempotent
+
+
+def test_serve_backs_up_before_running_a_new_version(home, inst):
+    import asyncio
+
+    from roj import __version__
+    from roj.server import serve_forever
+
+    inst.store.run("INSERT OR REPLACE INTO kv(key, value, updated) VALUES('last_version', '0.0.1', 'x')")
+    asyncio.run(serve_forever(inst, panel=False, ticks=1, interval_s=0))
+    assert inst.store.one("SELECT value FROM kv WHERE key = 'last_version'")["value"] == __version__
+    assert len(list((home / "backups").glob("roj-backup-*.tar.gz"))) >= 1  # pre-upgrade (and daily) snapshot, no bucket needed

@@ -158,6 +158,49 @@ def _handler(state: FakeWebState):
             with state.lock:
                 state.hits[path] += 1
             today = datetime.now(timezone.utc).date()
+            if path == "/api/hn":
+                hits = [{"title": f"Show HN: agent harness {i}", "url": f"https://blog.example.test/harness-{i}", "points": 100 - i,
+                         "num_comments": 10 + i, "created_at": "2026-05-0{}T00:00:00Z".format(i), "objectID": str(4000 + i)} for i in range(1, 4)]
+                return self._send(200, json.dumps({"hits": hits}).encode(), "application/json")
+            if path == "/api/github":
+                items = [{"full_name": f"org/agents-{i}", "html_url": f"https://github.com/org/agents-{i}", "description": "agent framework",
+                          "stargazers_count": 1000 * i, "pushed_at": "2026-10-01T00:00:00Z"} for i in range(1, 3)]
+                return self._send(200, json.dumps({"items": items}).encode(), "application/json")
+            if path == "/w/api.php":
+                res = {"query": {"search": [{"title": "Multi-agent system", "snippet": "A <span>multi-agent</span> system is",
+                                             "timestamp": "2026-01-01T00:00:00Z"}]}}
+                return self._send(200, json.dumps(res).encode(), "application/json")
+            if path == "/api/se":
+                return self._send(503, b'{"error_message": "down"}', "application/json")
+            if path == "/sitemap.xml":
+                locs = "".join(f"<url><loc>http://{self.headers.get('Host')}{p}</loc></url>" for p in ("/docs-site/a", "/docs-site/b", "/other/x"))
+                return self._send(200, f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{locs}</urlset>'.encode(), "application/xml")
+            if path.startswith("/docs-site/") or path.startswith("/other/") or path.startswith("/private/"):
+                name = path.rstrip("/").rsplit("/", 1)[-1] or "index"
+                if name == "js":
+                    body = ('<html><body><div id="root"></div><script>document.getElementById("root").innerHTML = "<main><h1>Rendered docs'
+                            '</h1><p>' + "This paragraph exists only after JavaScript runs in a browser. " * 8 + '</p></main>";</script>'
+                            '<script>1</script><script>2</script></body></html>')
+                    return self._send(200, body.encode(), "text/html")
+                nav = "".join(f'<a href="/docs-site/{x}">{x}</a>' for x in ("a", "b", "c", "js"))
+                body = (f'<html><head><title>Docs {name}</title><meta property="article:published_time" content="2026-02-0{len(name)}"></head>'
+                        f'<body><nav>{nav}<a href="/other/x">other</a><a href="/docs-site/a?sort=new">sorted</a></nav>'
+                        f'<div class="cookie-banner">Accept cookies</div><main><h1>Page {name}</h1><p>'
+                        + f"The {name} page explains compaction of agent conversations and prompt caching in detail. " * 6
+                        + '</p></main><footer>footer text</footer></body></html>')
+                return self._send(200, body.encode(), "text/html")
+            if path == "/search" and q.get("format") == "json":  # SearXNG
+                hits = [{"title": f"Result {i} for {q.get('q')}", "url": f"https://example.test/r{i}", "content": f"snippet {i}"}
+                        for i in range(1, 13)] + [{"title": "dup", "url": "https://example.test/r1", "content": "dup"}]
+                return self._send(200, json.dumps({"results": hits}).encode(), "application/json")
+            if path == "/arxiv":
+                entries = "".join(
+                    f"<entry><id>http://arxiv.org/abs/2601.0000{i}</id><title>Agents paper {i}</title><summary>About "
+                    f"{q.get('search_query')}</summary><published>2026-0{i}-01T00:00:00Z</published><author><name>A. Author</name>"
+                    f"</author></entry>" for i in range(1, 4))
+                return self._send(200, f'<feed xmlns="http://www.w3.org/2005/Atom">{entries}</feed>'.encode(), "application/atom+xml")
+            if path == "/s2":
+                return self._send(429, b'{"message": "Too Many Requests"}', "application/json")
             if path.startswith("/docs/prompting-"):
                 fam = path.rsplit("-", 1)[-1]
                 body = ("<html><body><h1>Prompting guide for " + fam + "</h1>" + "".join(

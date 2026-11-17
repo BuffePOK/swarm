@@ -135,6 +135,37 @@ CREATE TABLE IF NOT EXISTS models(
 """
 
 
+def migrate(conn: sqlite3.Connection, schema: str) -> list[str]:
+    """Additive migration: columns that a newer roj declares and an older database lacks are added.
+
+    The schema is built once in memory; every existing table is compared with it column by column.
+    Nothing is ever dropped or renamed, so an update can never lose data; a column that cannot be
+    added in place (primary key) is reported instead.
+    """
+    mem = sqlite3.connect(":memory:")
+    try:
+        mem.executescript(schema)
+        changes = []
+        for (name,) in mem.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").fetchall():
+            have = {r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')}
+            if not have:
+                continue  # new table: the schema script creates it
+            for _cid, col, typ, notnull, dflt, pk in mem.execute(f'PRAGMA table_info("{name}")').fetchall():
+                if col in have:
+                    continue
+                if pk:
+                    changes.append(f"{name}.{col}: primary key column cannot be added in place")
+                    continue
+                ddl = f'ALTER TABLE "{name}" ADD COLUMN "{col}" {typ}'
+                if dflt is not None:
+                    ddl += f" DEFAULT {dflt}" + (" NOT NULL" if notnull else "")
+                conn.execute(ddl)
+                changes.append(f"{name}.{col} added")
+        return changes
+    finally:
+        mem.close()
+
+
 class Store:
     def __init__(self, path: Path, schema: str):
         self.path = Path(path)
@@ -148,6 +179,7 @@ class Store:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self.migrated = migrate(self.conn, schema)
         self.conn.executescript(schema)
 
     @contextmanager

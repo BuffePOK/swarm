@@ -81,6 +81,19 @@ async def serve_forever(inst: "Installation", *, host: str = "127.0.0.1", port: 
         server, _, _ = serve(inst.home, host, port, allow_remote=allow_remote)
         threading.Thread(target=server.serve_forever, daemon=True, name="roj-panel").start()
         print(f"roj panel on http://{host}:{server.server_address[1]}/ (token in {inst.home / 'panel_token'})", flush=True)
+    from . import __version__
+
+    row = inst.store.one("SELECT value FROM kv WHERE key = 'last_version'")
+    if row and row["value"] != __version__:
+        try:  # a new image started: keep a snapshot of the data as it was under the old version
+            path = await asyncio.to_thread(backup, inst)
+            log.info("upgrade %s -> %s: backup %s", row["value"], __version__, path)
+            print(f"upgrade {row['value']} -> {__version__}: backup {path}", flush=True)
+        except Exception:  # noqa: BLE001
+            log.exception("pre-upgrade backup failed")
+    if not row or row["value"] != __version__:
+        inst.store.run("INSERT OR REPLACE INTO kv(key, value, updated) VALUES('last_version', ?, ?)", (__version__, utcnow_iso()))
+        inst.events.append("serve.version", {"version": __version__, "previous": row["value"] if row else None}, actor="serve")
     n = 0
     try:
         while ticks is None or n < ticks:
@@ -96,7 +109,7 @@ async def serve_forever(inst: "Installation", *, host: str = "127.0.0.1", port: 
             try:
                 today = day_key(inst.settings.timezone)
                 row = inst.store.one("SELECT value FROM kv WHERE key = 'last_backup_day'")
-                if inst.settings.storage.backup_dir and (not row or row["value"] != today):
+                if not row or row["value"] != today:  # daily, to [storage] backup_dir or <home>/backups
                     path = await asyncio.to_thread(backup, inst)
                     inst.store.run("INSERT OR REPLACE INTO kv(key, value, updated) VALUES('last_backup_day', ?, ?)", (today, utcnow_iso()))
                     log.info("daily backup: %s", path)

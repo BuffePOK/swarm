@@ -52,6 +52,10 @@ ARCHITECT = (
     "jakich agentów, narzędzi, pakietów wiedzy, decyzji właściciela. Szczegółowo planujesz tylko najbliższy etap; dalsze etapy "
     "to krótka mapa drogowa, którą poprawiasz po każdym etapie. Opierasz się na faktach o projekcie z dokumentów, a nie na założeniach.")
 ARCH_RULES = ("Każdy agent ma jedno zadanie z mierzalnymi kryteriami i tylko te narzędzia, których potrzebuje.",
+              "Agent badawczy szuka źródeł przez web.search i papers.search, czyta je przez web.fetch, ważne witryny (np. dokumentacje) "
+              "indeksuje przez web.crawl i potem przeszukuje je przez web.search ze źródłem index; każdy wniosek zapisuje przez "
+              "kb.note razem z adresem źródła i datą publikacji; dostaje max_steps 30-50. Wiedza z pamięci modelu bez źródła "
+              "to hipoteza, nie wynik.",
               "Używaj wyłącznie narzędzi z dokumentu tools i modeli z dokumentu models (dokładne id).",
               "Każdemu agentowi przypisz model i 1-2 zamienniki, najlepiej z innej rodziny; wybieraj najtańszy model, który według "
               "kart Lab poradzi sobie z zadaniem; agentom z narzędziami dawaj modele z tool calling; model bez karty to ryzyko, nazwij je.",
@@ -95,6 +99,8 @@ class Member(BaseModel):
     task: str = Field(min_length=15, max_length=600)
     acceptance: list[str] = Field(min_length=1, max_length=5)
     deliverable: str = Field(min_length=5, max_length=200)
+    max_steps: int = Field(20, ge=3, le=60, description="tool-use steps; research with search and reading needs 30-50")
+    budget_tokens: int = Field(200_000, ge=5_000, le=1_000_000)
 
 
 class StagePlan(BaseModel):
@@ -338,7 +344,8 @@ async def s_gate(ctx: StepContext) -> dict[str, Any]:
     p = ctx.results["plan"]
     st = p["plan"]["stage"]
     ctx.require("t2.mission_stage", {"mission": ctx.inputs["mission"][:8], "stage": p["n"], "objective": st["objective"],
-                                     "acceptance": st["acceptance"], "team": [f"{t['agent']} ({t['model']}, fallbacks {', '.join(t['fallbacks']) or 'none'}): {t['task']}" for t in st["team"]],
+                                     "acceptance": st["acceptance"], "team": [f"{t['agent']} ({t['model']}, fallbacks {', '.join(t['fallbacks']) or 'none'}; up to {t.get('max_steps', 20)} steps, "
+                                              f"{t.get('budget_tokens', 200_000):,} tokens; tools: {', '.join(t['tools']) or 'none'}): {t['task']}" for t in st["team"]],
                                      "needs": [f"{x['kind']}: {x['name']}" for x in st["needs"]], "leader": p["critique"]})
     return {"approved": True}
 
@@ -360,10 +367,10 @@ async def s_team(ctx: StepContext) -> dict[str, Any]:
             role = RoleDef(name=mem.agent, summary=mem.summary, binding=mem.agent, tools=mem.tools, autonomy=Autonomy.L1,
                            instructions=mem.instructions)
             task = TaskSpec(goal=mem.task, deliverable=mem.deliverable, acceptance=mem.acceptance,
-                            inputs={"stage_objective": st.objective}, budget=BudgetSpec(tokens=200_000))
+                            inputs={"stage_objective": st.objective}, budget=BudgetSpec(tokens=mem.budget_tokens))
             docs = [Document(f"result-{a}", canonical_json(r), a) for a, r in results.items()]
             run = await run_agent(ctx, role=role, task=task, binding=mem.binding(), agent_name=mem.agent,
-                                  scope=f"team:mission/agent:{mem.agent}", documents=docs, max_steps=int(ctx.inputs.get("max_steps", 20)))
+                                  scope=f"team:mission/agent:{mem.agent}", documents=docs, max_steps=int(ctx.inputs.get("max_steps", mem.max_steps)))
             return {**run.output.model_dump(), "steps": run.steps, "tools_used": [c.get("tool") or c.get("name") for c in run.tool_calls]}
         results[mem.agent] = await ctx.memo(f"agent:{mem.agent}", work)
     return {"results": results}

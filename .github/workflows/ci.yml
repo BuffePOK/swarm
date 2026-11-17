@@ -63,6 +63,7 @@ jobs:
           docker exec roj-ci roj doctor | head -3
           docker exec roj-ci git --version
           docker exec roj-ci roj selftest
+          docker exec roj-ci roj browser check
           docker rm -f roj-ci
       - name: Push
         uses: docker/build-push-action@v6

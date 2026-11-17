@@ -78,6 +78,19 @@ max_delay_s = 0.01
 rate_limit_max_wait_s = 0
 breaker_threshold = 3
 breaker_cooldown_s = 60
+[search]
+provider = "searxng"
+searxng_url = "{web_url}"
+arxiv_url = "{web_url}/arxiv"
+semantic_scholar_url = "{web_url}/s2"
+daily_limit = 5
+sources = ["index", "hn", "github", "wikipedia", "stackexchange"]
+crawl_daily_pages = 50
+[search.endpoints]
+hn = "{web_url}/api/hn"
+github = "{web_url}/api/github"
+wikipedia = "{web_url}/w/api.php"
+stackexchange = "{web_url}/api/se"
 """
 
 

@@ -24,19 +24,81 @@ if TYPE_CHECKING:
 MAX_TEXT = 20_000
 
 
-@tool("web.fetch", "Fetch a public URL (robots.txt respected) and return readable text, truncated")
-async def web_fetch(ctx: "StepContext", url: str, max_chars: int = 8000) -> dict:
+@tool("web.fetch", "Read a public web page as clean text (main content, headings, code, tables) plus its links; "
+      "pages built by JavaScript are rendered in a headless browser. robots.txt is respected", timeout_s=90)
+async def web_fetch(ctx: "StepContext", url: str, max_chars: int = 8000, render: str = "auto", links: int = 30) -> dict:
+    """render: auto (only when the page needs JavaScript) | always | never"""
+    from ..hands.extract import extract, needs_browser
+
     r = await ctx.project.fetcher.get(url, purpose="tool:web.fetch")
-    if not r.ok:
+    html, final, rendered, note = "", url, False, None
+    if r.ok:
+        if looks_like_feed(r.content):
+            try:
+                title, items = parse_feed(r.content, base_url=url)
+                return {"kind": "feed", "title": title, "items": [i.as_dict() for i in items[:40]]}
+            except FeedError:
+                pass
+        html, final = r.text(), r.url
+    elif render == "never" or (r.error and "robots" in r.error):
         raise ToolError(r.error or f"HTTP {r.status}")
-    if looks_like_feed(r.content):
+    page = extract(html, final, limit=max(1000, min(max_chars, MAX_TEXT))) if html else None
+    if render == "always" or (render == "auto" and (page is None or needs_browser(html, page))):
+        from ..hands.browser import BrowserUnavailable, pool
+
         try:
-            title, items = parse_feed(r.content, base_url=url)
-            return {"kind": "feed", "title": title, "items": [i.as_dict() for i in items[:40]]}
-        except FeedError:
-            pass
-    text = html_to_text(r.text(), limit=min(max_chars, MAX_TEXT))
-    return {"kind": "page", "url": r.url, "text": text, "ref": r.ref}
+            rr = await pool(ctx.project.inst).render(ctx.project, url)
+            if rr.refused:
+                note = rr.refused
+            elif rr.html:
+                html, final, rendered = rr.html, rr.url, True
+                page = extract(html, final, limit=max(1000, min(max_chars, MAX_TEXT)))
+        except BrowserUnavailable as e:
+            note = f"not rendered: {e}"
+    if page is None:
+        raise ToolError(note or r.error or f"HTTP {r.status}")
+    out = {"kind": "page", "url": final, "title": page.title, "published": page.published, "text": page.text,
+           "links": page.links[: max(0, min(links, 100))], "rendered": rendered, "ref": r.ref}
+    if note:
+        out["note"] = note
+    return out
+
+
+@tool("web.search", "Search: roj's own index of crawled sites, Hacker News, GitHub, Wikipedia, Stack Overflow (and a general web "
+      "search if configured). Returns title, url, snippet, date, source. Read results with web.fetch; index a whole site with web.crawl",
+      timeout_s=60)
+async def web_search_tool(ctx: "StepContext", query: str, max_results: int = 8, sources: str = "") -> dict:
+    """sources: comma-separated subset of index, hn, github, wikipedia, stackexchange, web (empty = all configured)"""
+    from ..hands.search import SearchError, web_search
+
+    try:
+        return await web_search(ctx.project.inst, query, max_results, events=ctx.project.events, project=ctx.project,
+                                sources=[x.strip() for x in sources.split(",") if x.strip()] or None)
+    except SearchError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool("web.crawl", "Index a site section (e.g. a documentation) into roj's own search index so it can be searched "
+      "for free with web.search source 'index'. Stays on one host under the URL's path; robots.txt respected",
+      tier="t1", side_effects="adds pages to the project's knowledge base", timeout_s=1800)
+async def web_crawl_tool(ctx: "StepContext", url: str, max_pages: int = 40, depth: int = 3, prefix: str = "") -> dict:
+    from ..hands.crawl import crawl
+
+    try:
+        return await crawl(ctx.project, url, max_pages=max(1, min(max_pages, 300)), depth=max(0, min(depth, 6)), prefix=prefix or None)
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool("papers.search", "Search research papers (arXiv and Semantic Scholar): title, url, abstract, year, citations",
+      timeout_s=60)
+async def papers_search_tool(ctx: "StepContext", query: str, max_results: int = 8, source: str = "all") -> dict:
+    from ..hands.search import SearchError, paper_search
+
+    try:
+        return await paper_search(ctx.project.inst, query, max_results, source, events=ctx.project.events)
+    except SearchError as e:
+        raise ToolError(str(e)) from e
 
 
 @tool("kb.search", "Search a knowledge pack of this project (hybrid BM25 + vectors); returns cited chunks")
