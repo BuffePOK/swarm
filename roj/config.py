@@ -92,13 +92,49 @@ class PromptSettings(BaseModel):
     min_cacheable_prefix_tokens: int = 1024  # below this most providers do not cache
 
 
+class SearchSettings(BaseModel):
+    """Search for agents (`web.search`, `papers.search`). Free, official APIs and roj's own index by default;
+    a general web search provider (Tavily, Brave, own SearXNG) is optional."""
+
+    sources: list[str] = Field(default_factory=lambda: ["index", "hn", "github", "wikipedia", "stackexchange"])
+    provider: str | None = None  # optional general web search: "tavily" | "brave" | "searxng"
+    key_env: str = "ROJ_SEARCH_KEY"  # Tavily / Brave key
+    searxng_url: str | None = None  # e.g. http://127.0.0.1:8888 (your own instance, JSON format enabled)
+    api_url: str | None = None  # override of the provider's endpoint (tests, proxies)
+    endpoints: dict[str, str] = Field(default_factory=dict)  # override of the free APIs' URLs (tests, mirrors)
+    github_token_env: str = "ROJ_GITHUB_TOKEN"  # optional: raises GitHub's search limit from 10 to 30 per minute
+    stackexchange_key_env: str = "ROJ_STACKEXCHANGE_KEY"  # optional: 300 -> 10,000 requests per day
+    max_results: int = 8
+    daily_limit: int = 2000  # searches per installation per day
+    crawl_daily_pages: int = 3000  # pages roj may add to its own index per day
+    timeout_s: float = 20.0
+    arxiv_url: str = "https://export.arxiv.org/api/query"  # free, no key
+    semantic_scholar_url: str = "https://api.semanticscholar.org/graph/v1/paper/search"  # free, shared rate limit
+
+    def api_key(self) -> str:
+        return os.environ.get(self.key_env, "")
+
+
 class WebSettings(BaseModel):
-    user_agent: str = "roj/0.3 (personal research agent; respects robots.txt)"
+    user_agent: str = "roj/0.6 (personal research agent; respects robots.txt)"
     timeout_s: float = 20.0
     max_bytes: int = 5_000_000
     per_host_interval_s: float = 1.0
     respect_robots: bool = True
     max_concurrency: int = 6
+
+
+class BrowserSettings(BaseModel):
+    """Headless Chromium for pages that need JavaScript (optional extra `browser`; included in the image)."""
+
+    enabled: bool = True  # used only when Playwright and Chromium are installed
+    profile: str = "research"  # persistent profile agents use; the owner may log in to it (`roj browser open`)
+    nav_timeout_s: float = 30.0
+    settle_ms: int = 1500  # extra wait after load for late JavaScript
+    max_pages: int = 2  # pages open at once (RAM: each ~100-200 MB)
+    idle_close_s: float = 120.0  # close the browser when unused
+    block: list[str] = Field(default_factory=lambda: ["image", "media", "font"])  # not needed for text: saves RAM and traffic
+    daily_limit: int = 2000  # rendered pages per installation per day
 
 
 class NotifySettings(BaseModel):
@@ -175,6 +211,8 @@ class Settings(BaseModel):
     language: LanguageSettings = LanguageSettings()
     prompt: PromptSettings = PromptSettings()
     web: WebSettings = WebSettings()
+    search: SearchSettings = SearchSettings()
+    browser: BrowserSettings = BrowserSettings()
     notify: NotifySettings = NotifySettings()
     context: ContextSettings = ContextSettings()
     knowledge: KnowledgeSettings = KnowledgeSettings()

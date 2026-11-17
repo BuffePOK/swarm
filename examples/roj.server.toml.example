@@ -31,6 +31,16 @@ keep_turns = 3
 max_tokens = 2500
 novelty_threshold = 0.34
 
+[search]                    # free by default: roj's own index + Hacker News, GitHub, Wikipedia, Stack Overflow; papers: arXiv, Semantic Scholar
+sources = ["index", "hn", "github", "wikipedia", "stackexchange"]
+daily_limit = 2000          # searches per day for the whole installation
+crawl_daily_pages = 3000    # pages web.crawl may add to roj's own index per day
+# provider = "tavily"       # optional general web search: "tavily" | "brave" (key in ROJ_SEARCH_KEY) | "searxng" (searxng_url)
+
+[browser]                   # headless Chromium for JavaScript pages (installed in the image)
+profile = "research"        # persistent profile; log in with `roj browser open --profile research`
+max_pages = 2
+
 [notify]
 telegram_chat_id = "123456789"
 

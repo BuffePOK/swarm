@@ -136,6 +136,12 @@ async def run_doctor(inst: "Installation", *, live: bool = False) -> list[Check]
     c.append(Check("market", "PASS" if os.environ.get("FRED_API_KEY") else "INFO",
                    "FRED_API_KEY " + ("set" if os.environ.get("FRED_API_KEY") else "not set: indices, yields, Brent and VIX will be missing")))
 
+    sc = s.search
+    srcs = ", ".join(sc.sources) + (f" + {sc.provider}" if sc.provider else "")
+    key_missing = sc.provider in ("tavily", "brave") and not sc.api_key()
+    c.append(Check("search", "FAIL" if key_missing else "PASS", f"search sources: {srcs}; papers: arXiv, Semantic Scholar"
+                   + (f"; {sc.provider} key missing in {sc.key_env}" if key_missing else ""),
+                   "" if not key_missing else f"set {sc.key_env} in roj.env or remove [search] provider"))
     st, sd = s.storage, s.selfdev
     if st.backup_dir:
         ok = Path(st.backup_dir).expanduser().is_dir() and os.access(Path(st.backup_dir).expanduser(), os.W_OK)
@@ -222,6 +228,25 @@ async def _live(inst: "Installation", models: list[str]) -> list[Check]:
         c.append(Check("live", "PASS" if r.status_code == 200 else "WARN", f"public feed (federalreserve.gov): HTTP {r.status_code}"))
     except Exception as e:  # noqa: BLE001
         c.append(Check("live", "FAIL", f"internet/feeds: {type(e).__name__}: {e}"[:200], "check proxy or firewall"))
+    from ..hands.search import paper_search, web_search
+
+    try:
+        res = await web_search(inst, "multi-agent LLM orchestration", 3)
+        c.append(Check("live", "PASS" if res["results"] and not res["errors"] else "WARN",
+                       f"web search: {len(res['results'])} results from {', '.join(res['sources']) or 'no source'}"
+                       + (f"; errors: {'; '.join(res['errors'])}" if res["errors"] else "")))
+    except Exception as e:  # noqa: BLE001
+        c.append(Check("live", "FAIL", f"web search: {type(e).__name__}: {e}"[:250]))
+    from ..hands.browser import available
+
+    ok, why = available()
+    c.append(Check("live", "PASS" if ok else "INFO", "headless browser: " + ("Playwright installed (`roj browser check` starts Chromium)" if ok else why)))
+    try:
+        res = await paper_search(inst, "multi-agent LLM", 3)
+        c.append(Check("live", "PASS" if res["results"] else "WARN",
+                       f"paper search: {len(res['results'])} results" + (f"; {'; '.join(res['errors'])}" if res["errors"] else "")))
+    except Exception as e:  # noqa: BLE001
+        c.append(Check("live", "FAIL", f"paper search: {type(e).__name__}: {e}"[:200]))
     return c
 
 

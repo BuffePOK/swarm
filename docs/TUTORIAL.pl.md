@@ -164,6 +164,7 @@ nano ~/roj.env
 | `ROJ_API_KEY` | **tak** | klucz `sk-gate-…` utworzony dla roj w panelu api-gate |
 | `ROJ_TELEGRAM_TOKEN` | nie | token bota od @BotFather (sekcja 7) |
 | `ROJ_GITHUB_TOKEN` | nie | token do pull requestów (sekcja 14) |
+| `ROJ_SEARCH_KEY` | nie | klucz opcjonalnej ogólnej wyszukiwarki Tavily albo Brave (sekcja 6.5); R&D działa bez niego |
 
 Nic więcej. **Żaden sekret nie trafia do `roj.toml`**, do repozytorium ani do czatu.
 Puste linie `ROJ_TELEGRAM_TOKEN=` i `ROJ_GITHUB_TOKEN=` mogą zostać puste.
@@ -315,7 +316,49 @@ clone_url = "https://github.com/<login>/roj.git"
 github_repo = "<login>/roj"
 ```
 
-### 6.5 Zastosuj i sprawdź
+### 6.5 Wyszukiwanie i przeglądarka dla agentów badawczych
+
+Nic nie trzeba kupować ani zakładać. Agenci mają trzy narzędzia:
+
+| narzędzie | co robi | koszt, limity |
+|---|---|---|
+| `web.search` | szuka jednocześnie w: **własnym indeksie roju**, Hacker News, GitHub, Wikipedii, Stack Overflow; wyniki z każdego źródła na zmianę | darmowe oficjalne API; limit roju 2000 wyszukiwań dziennie (`[search] daily_limit`) |
+| `papers.search` | publikacje z arXiv i Semantic Scholar | darmowe |
+| `web.fetch` | czyta stronę jako czysty tekst (główna treść, nagłówki, kod, tabele; bez menu, stopki, banerów cookies, reklam) plus listę linków; stronę zbudowaną przez JavaScript otwiera w **bezgłowym Chromium** | darmowe; robots.txt respektowany |
+| `web.crawl` | indeksuje całą sekcję witryny (np. dokumentację) do własnego indeksu; potem `web.search` przeszukuje ją bez limitu i bez sieci | do 3000 stron dziennie (`[search] crawl_daily_pages`) |
+
+**Dlaczego nie DuckDuckGo ani Google przez przeglądarkę:** ich robots.txt i regulaminy zabraniają
+automatycznych zapytań do stron wyników, a przy tysiącach zapytań z jednego IP i tak kończy się
+to CAPTCHĄ. roj nie obchodzi zabezpieczeń przed automatami. Zamiast tego agent znajduje źródła
+w otwartych API (HN, GitHub, Wikipedia, Stack Overflow, arXiv), a ważne witryny indeksuje sam
+(`web.crawl`): wtedy szuka w nich bez limitu.
+
+Opcjonalnie możesz dodać ogólną wyszukiwarkę (`[search] provider`): Tavily (1000 darmowych
+wyszukiwań miesięcznie, klucz w `ROJ_SEARCH_KEY`), Brave (klucz) albo własne SearXNG. Do R&D nie jest potrzebna.
+
+**Logowanie do stron (Twoje „ludzkie” cookies).** Przeglądarka agentów ma trwały profil `research`.
+Możesz się do niego podłączyć i zalogować na swoje konta (np. dokumentacja wymagająca konta):
+
+```bash
+roj browser open --profile research --minutes 15 https://strona-do-zalogowania
+```
+
+Na Windows: `ssh -L 9222:127.0.0.1:9222 <admin>@<adres VPS>`, potem w Chrome `chrome://inspect`
+→ *Configure* → dodaj `localhost:9222` → *inspect* przy stronie. Widzisz stronę na żywo, możesz
+klikać i pisać. Cookies zostają w profilu; agenci czytają te strony jako Ty. Póki sesja jest
+otwarta, agenci nie mogą używać tego profilu (czytają wtedy bez renderowania).
+
+**Sprawdzenie:**
+
+```bash
+roj browser check                                         # chromium …: rendered by JavaScript
+roj search -p lab "multi-agent orchestration" -n 3        # → wklej (wyniki z kilku źródeł, errors puste)
+roj browser fetch -p lab https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview
+roj crawl -p lab https://docs.claude.com/en/docs/build-with-claude/ --max-pages 30   # → wklej
+roj search -p lab "prompt caching" --sources index -n 3
+```
+
+### 6.6 Zastosuj i sprawdź
 
 ```bash
 systemctl --user restart roj.service
@@ -371,6 +414,20 @@ podman auto-update --dry-run                           # → wklej
 
 **Sprawdzenie:** w `--dry-run` widać `roj.service` z obrazem `ghcr.io/<login>/roj:latest`
 i `UPDATED: false`. Pełny test aktualizacji jest w sekcji 14.4.
+
+**Co aktualizacja zmienia, a czego nie.** Obraz zawiera tylko kod. Nowy obraz zastępuje kontener,
+a te pliki zostają nietknięte, bo leżą poza nim:
+
+| co | gdzie | przy aktualizacji |
+|---|---|---|
+| ustawienia | `~/data/roj.toml`, `~/data/pricing.toml`, `~/data/projects/*/project.toml` | nigdy nie nadpisywane (szablon powstaje tylko, gdy pliku nie ma) |
+| sekrety | `~/roj.env` | nietknięte |
+| bazy, logi, raporty, wiedza, Playbook | `~/data/...` | bazy dostają tylko **nowe** kolumny i tabele; nic nie jest usuwane ani zmieniane |
+| przerwane zadania | bazy | wznawiane od ostatniego ukończonego kroku |
+| kopia | `~/data/backups` (albo bucket) | przy pierwszym starcie nowej wersji roj robi kopię danych sprzed aktualizacji, potem raz dziennie |
+
+Nowe opcje konfiguracji mają wartości domyślne. Żeby z nich skorzystać, dopisujesz sekcję do
+`roj.toml` sam (wzór zawsze aktualny: `podman exec roj cat /opt/roj/examples/roj.server.toml.example`).
 
 Przypięcie wersji / ręczny powrót: w `roj.container` zamień `:latest` na `:<sha commita>`,
 usuń linię `AutoUpdate=registry`, potem `systemctl --user daemon-reload && systemctl --user restart roj.service`.
@@ -512,8 +569,23 @@ Ten sam przebieg w CLI:
 
 ### 13.1 Start
 
+Pierwsza misja to pełne R&D: modele i ich rodziny, harnessy pojedynczych agentów (Claude,
+Codex, Antigravity…), systemy wieloagentowe, prompty, RAG i jego bezpieczeństwo,
+bezpieczeństwo danych, interfejs właściciela, a na końcu porównanie z samym rojem. Cel
+jest w pliku `examples/missions/rnd-foundations.md` (w obrazie: `/opt/roj/examples/missions/`).
+Przeczytaj go i zmień, jeśli chcesz; Architekt dostaje go w całości przy każdym planie.
+
+Przed startem (R&D zużywa więcej niż zwykły etap):
+- `roj doctor --live` pokazuje `web search: … results` i `headless browser: Playwright installed`;
+- budżet projektu w `~/data/projects/lab/project.toml` (`[budget] tokens_per_day`, `usd_per_day`);
+  na R&D zalecam np. 3 000 000 tokenów i 15 USD dziennie, potem z powrotem.
+
+W panelu: *New mission* → wklej treść pliku → control `full` → *Start*. Albo w CLI:
+
 ```bash
-roj mission start -p lab --control full "Improve the roj project using roj itself, as described in docs/CONCEPT.md. First stage: understand the code and measure baselines; no code changes in the first stage."
+podman exec roj cat /opt/roj/examples/missions/rnd-foundations.md > ~/rnd-goal.md
+nano ~/rnd-goal.md                                  # opcjonalnie: Twoje zmiany
+roj mission start -p lab --control full "$(cat ~/rnd-goal.md)"
 ```
 
 Jedno wywołanie Architekta. Wynik (JSON): `"status": "needs_answers"`, `understanding`
@@ -699,7 +771,7 @@ Playbook, wszystkie prompty i odpowiedzi z okresu. Bez kluczy i tokenów (sprawd
 | 2 | Pakiet `ghcr.io/<login>/roj` publiczny | GitHub Packages | ☐ |
 | 3 | `podman ps`: `roj` *healthy* | VPS | ☐ |
 | 4 | `roj selftest` 9/9 na serwerze | VPS | ☐ |
-| 5 | `roj doctor --live`: 0 FAIL, wszystkie modele odpowiadają | VPS | ☐ |
+| 5 | `roj doctor --live`: 0 FAIL, modele odpowiadają, wyszukiwanie zwraca wyniki; `roj browser check` | VPS | ☐ |
 | 6 | `[models.architect]`, `[models.leader]` (różne rodziny), `[models.cheap]`; ceny zaimportowane, `roj pricing show` bez niespodzianek | `roj doctor` | ☐ |
 | 7 | `roj telegram test` dochodzi (jeśli używasz) | telefon | ☐ |
 | 8 | Timer auto-update aktywny, `--dry-run` widzi `roj` | VPS | ☐ |

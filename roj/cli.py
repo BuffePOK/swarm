@@ -93,6 +93,32 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--timezone")
     pr.add_parser("list")
 
+    cr = sub.add_parser("crawl", help="index a site section into roj's own search index (web.search source 'index')")
+    cr.add_argument("-p", "--project", required=True)
+    cr.add_argument("url")
+    cr.add_argument("--max-pages", type=int, default=100)
+    cr.add_argument("--depth", type=int, default=3)
+    cr.add_argument("--prefix", help="path prefix to stay under (default: the URL's directory)")
+    cr.add_argument("--render", choices=["auto", "always", "never"], default="auto")
+
+    se = sub.add_parser("search", help="try web.search / papers.search from the command line")
+    se.add_argument("-p", "--project", required=True)
+    se.add_argument("query")
+    se.add_argument("--sources", default="", help="comma-separated: index,hn,github,wikipedia,stackexchange,web,papers")
+    se.add_argument("-n", type=int, default=5)
+
+    br = sub.add_parser("browser", help="headless Chromium: check it, or open a profile so you can log in").add_subparsers(dest="action", required=True)
+    br.add_parser("check", help="start Chromium and render a test page (no network)")
+    bro = br.add_parser("open", help="open a persistent profile with DevTools on 127.0.0.1:<port> (attach through an SSH tunnel)")
+    bro.add_argument("--profile", default="research")
+    bro.add_argument("--port", type=int, default=9222)
+    bro.add_argument("--minutes", type=float, default=15)
+    bro.add_argument("url", nargs="?")
+    brf = br.add_parser("fetch", help="read one page the way agents do (clean text, rendered if needed)")
+    brf.add_argument("-p", "--project", required=True)
+    brf.add_argument("url")
+    brf.add_argument("--render", choices=["auto", "always", "never"], default="auto")
+
     pz = sub.add_parser("pricing", help="model prices used by budgets").add_subparsers(dest="action", required=True)
     pzi = pz.add_parser("import", help="import the gateway's price list (apigate presets/prices.toml format)")
     pzi.add_argument("file")
@@ -395,6 +421,28 @@ async def _amain(args: argparse.Namespace) -> int:
                 _print([{"project": n} for n in inst.project_names()], args.json)
             return 0
 
+        if args.cmd == "browser" and args.action in ("check", "open"):
+            from .hands import browser as hb
+
+            if args.action == "open":
+                await hb.open_for_owner(inst, args.profile, args.port, args.url, args.minutes)
+                return 0
+            ok, why = hb.available()
+            if not ok:
+                print(why, file=sys.stderr)
+                return 1
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(headless=True, args=hb.launch_args())
+                page = await b.new_page()
+                await page.set_content("<main><h1 id=t></h1></main><script>document.getElementById('t').textContent='rendered by JavaScript'</script>")
+                text = await page.inner_text("h1")
+                version = b.version
+                await b.close()
+            print(f"chromium {version}: {text}")
+            return 0 if text == "rendered by JavaScript" else 1
+
         if args.cmd == "pricing":
             from .models.catalog import catalog_for, import_apigate_prices, write_pricing
 
@@ -566,7 +614,8 @@ async def _amain(args: argparse.Namespace) -> int:
         p = inst.project(args.project)
         try:
             code = await _project_cmd(args, p)
-            if args.cmd in ("skill", "task", "approvals", "blueprint", "lab", "selfdev", "mission", "chat"):
+            if args.cmd in ("skill", "task", "approvals", "blueprint", "lab", "selfdev", "mission", "chat", "crawl", "search") \
+            or (args.cmd == "browser" and args.action == "fetch"):
                 from .notify.outbox import flush
 
                 try:
@@ -663,6 +712,31 @@ async def _project_cmd(args: argparse.Namespace, p) -> int:
         return await _run_workflow(args, p, STUDY_REF, inputs, ("report",))
     if args.cmd in ("mission", "chat"):
         return await _mission_cmd(args, p)
+    if args.cmd == "crawl":
+        from .hands.crawl import crawl
+
+        _print(await crawl(p, args.url, max_pages=args.max_pages, depth=args.depth, prefix=args.prefix, render=args.render), True)
+        return 0
+    if args.cmd == "search":
+        from .hands.search import paper_search, web_search
+
+        srcs = [x.strip() for x in args.sources.split(",") if x.strip()]
+        out: dict[str, Any] = {}
+        if not srcs or set(srcs) - {"papers"}:
+            out["web"] = await web_search(p.inst, args.query, args.n, events=p.events, project=p,
+                                          sources=[x for x in srcs if x != "papers"] or None)
+        if not srcs or "papers" in srcs:
+            out["papers"] = await paper_search(p.inst, args.query, args.n, events=p.events)
+        _print(out, True)
+        return 0
+    if args.cmd == "browser":
+        from .core.kernel import StepContext
+        from .tools import registry
+
+        r = await registry.call(StepContext(p, None, None, "cli", 0, 1, {}, {}), "web.fetch", {"url": args.url, "render": args.render},
+                                agent="owner")
+        _print(r, True)
+        return 0 if r.get("ok") else 4
     if args.cmd == "selfdev":
         from .lab.selfdev import SELFDEV_REF
 

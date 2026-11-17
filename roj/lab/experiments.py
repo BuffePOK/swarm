@@ -49,8 +49,11 @@ async def run_trial(ctx: StepContext, model: str, case: EvalCase, profile: Promp
         value, valid = extract_json(r.text), True
     except ValueError:
         value, valid = None, False
-    return {"score": round(case.score(value), 4), "tokens": r.usage.total, "valid": valid, "latency_s": round(r.latency_s, 3),
-            "cost_usd": r.cost_usd}
+    score = round(case.score(value), 4)
+    out = {"score": score, "tokens": r.usage.total, "valid": valid, "latency_s": round(r.latency_s, 3), "cost_usd": r.cost_usd}
+    if score < 1:  # keep evidence of what went wrong: the report shows it
+        out["sample"] = r.text[:400]
+    return out
 
 
 async def measure(ctx: StepContext, models: list[str], cases: list[EvalCase], profile: PromptProfile,

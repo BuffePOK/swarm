@@ -1,6 +1,6 @@
 # roj: the complete concept
 
-Version of this document: 2026-11-16, describes roj v0.5.1.
+Version of this document: 2026-11-16, describes roj v0.6.0.
 Owner-only file: agents read it, they do not edit it (it is a protected path). Changes to
 goals and rules come from the owner.
 
@@ -508,8 +508,10 @@ layers: L0 (name and one sentence), L1 (signature, limits), L2 (full, on request
 `tools.describe`), so documentation cannot drift from code. Each tool has a tier, a timeout
 and a declared side effect.
 
-Built-in tools: `calc`, `time.now`, `web.fetch` (robots.txt respected, per-host pacing,
-ETag cache), `files.read|list|write` (project workspace), `kb.search`, `kb.retrieve`,
+Built-in tools: `calc`, `time.now`, `web.search` (roj's own index, Hacker News, GitHub, Wikipedia,
+Stack Overflow; optional Tavily, Brave or own SearXNG; daily limit), `papers.search` (arXiv, Semantic
+Scholar), `web.fetch` (main-content extraction; headless Chromium for JavaScript pages; robots.txt
+respected, per-host pacing, ETag cache), `web.crawl` (indexes a site section into roj's own search index), `files.read|list|write` (project workspace), `kb.search`, `kb.retrieve`,
 `kb.note`, `tools.describe`, `shell.run` (T2), and for work on a git checkout
 `repo.list|read|search` (read) and `repo.write|replace|test` (only inside a selfdev worktree).
 
@@ -524,13 +526,18 @@ Used by compiled skills: an allow-list on the syntax tree, then execution in a s
 interpreter with resource limits. Selfdev tests run with an environment that holds no secrets,
 with a timeout, and in a private network namespace when the kernel allows it.
 
-### 11.4 Hands hierarchy [planned, except level 1 and parts of 2]
+### 11.4 Hands hierarchy [levels 1, 2 and 3 for reading built; 4 and 5 planned]
 
 Always the highest available level: (1) API or library; (2) CLI or script; (3a) a real browser
 driven over the debugging protocol, with separate persistent profiles per purpose and the port
 bound to localhost; (3b) headless browser for anonymous bulk work; (4) UI automation;
 (5) vision with mouse and keyboard as the last resort. Full computer access is a goal of the
 project, to be reached in this order and behind permission flags.
+
+[built] Headless Chromium (Playwright) renders JavaScript pages for `web.fetch` and `web.crawl`, with
+persistent profiles under `<home>/browser/<profile>`; the owner attaches to a profile over DevTools
+(`roj browser open`, port on localhost, SSH tunnel) to log in to his accounts. It reads pages; it
+does not click through flows for agents yet. No CAPTCHA solving, no fingerprint spoofing.
 
 ### 11.5 Shared pool [partial]
 
@@ -752,7 +759,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | `roj/cli.py`, `roj/config.py`, `roj/project.py`, `roj/contracts.py` | command line, settings, wiring, typed contracts |
 | `docs/` | this document, ADR-0001 to 0009, SERVER, WALKTHROUGH, FIRST_RUN, BACKLOG, architecture |
 | `deploy/podman/`, `Dockerfile`, `.github/workflows/ci.yml` | deployment |
-| `tests/` | 127 tests |
+| `tests/` | 134 tests |
 
 ---
 
@@ -760,7 +767,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 
 ### 21.1 What exists
 
-About 13,500 lines of library code, 127 tests, versions 0.1 to 0.5.1 written between
+About 13,500 lines of library code, 134 tests, versions 0.1 to 0.6.0 written between
 2026-11-06 and 2026-11-15 in one continuous design-and-build conversation between the owner
 and an AI assistant. Phases: kernel and model stack; the Morning brief with a research
 bootstrap; gates, Telegram, panel, knowledge packs, agent loop, Blueprint; then server
@@ -943,3 +950,6 @@ These are first targets, not the end. The owner sets the next ones.
 | 2026-11-15 | Owner asks for this document as the reference for the improvement loop. v0.4.1 |
 | 2026-11-16 | Owner: agents' roles are invented by the Architect, so the owner should not bind models per role. The owner binds only the Architect, the Leader and a cheap model; the Architect assigns models to agents from the gateway's catalog; missions in the web panel; prices imported from the gateway. v0.5.0 |
 | 2026-11-16 | First real `roj doctor --live` on the server: Claude Opus/Haiku 5.5 reject `temperature`, Mistral Large 4 requires `top_p = 1` for greedy sampling. The client now learns such request fixes per model from the provider's own 400 errors. v0.5.1 |
+| 2026-11-17 | First Lab study on 6 real models. Owner: the first mission is full R&D (models, harnesses, multi-agent systems, prompting, RAG security, data protection, owner UI, roj gap analysis), from external sources. Agents get web and paper search; the Architect sets steps and token budget per agent. v0.5.2 |
+| 2026-11-17 | Updates never touch data: additive schema migration (columns and tables only added), a backup before a new version first runs, daily backups even without a bucket. v0.5.3 |
+| 2026-11-17 | Owner: thousands of searches, no paid search. Search engines' result pages are not scraped (robots.txt, terms, bot protection); instead free official APIs (Hacker News, GitHub, Wikipedia, Stack Overflow, arXiv, Semantic Scholar), roj's own crawled index, main-content extraction and headless Chromium with persistent profiles the owner can log in to. v0.6.0 |
