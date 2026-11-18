@@ -191,7 +191,7 @@ async def s_propose(ctx: StepContext) -> dict[str, Any]:
             Document("backlog", sv["backlog"] or "(empty)", "docs/BACKLOG.md"), Document("playbook", canonical_json(sv["playbook"]), "active Playbook")]
     if sv.get("concept"):
         docs.insert(0, Document("concept", sv["concept"], "docs/CONCEPT.md (owner): what the project is and what improvement means"))
-    res = await run_slot(ctx, Slot("selfdev-planner", PLANNER, Proposals, max_tokens=3000), task, binding=_bind(ctx, "planner", "analyst"),
+    res = await run_slot(ctx, Slot("selfdev-planner", PLANNER, Proposals, max_tokens=8000), task, binding=_bind(ctx, "planner", "analyst"),
                          scope="team:selfdev/agent:worker", documents=docs)
     dropped, valid = [], []
     for p in res.value.items:
@@ -292,7 +292,7 @@ async def s_review(ctx: StepContext) -> dict[str, Any]:
     task = TaskSpec(goal="Oceń zmianę przed pull requestem i wydaj werdykt approve albo reject", deliverable="Review JSON",
                     output_format="Wyłącznie JSON", acceptance=["Werdykt to approve albo reject", "Każdy zarzut wskazuje plik z diffu"],
                     budget=BudgetSpec(tokens=40_000))
-    res = await run_slot(ctx, Slot("selfdev-reviewer", REVIEWER, Review, max_tokens=1500), task, binding=_bind(ctx, "critic", "checker"),
+    res = await run_slot(ctx, Slot("selfdev-reviewer", REVIEWER, Review, max_tokens=4000), task, binding=_bind(ctx, "critic", "checker"),
                          scope="team:selfdev/agent:worker", documents=[Document("proposal", canonical_json(ctx.results["propose"]["chosen"]), "planner"),
                                                                Document("diff", diff[:40_000], "git diff")])
     return res.value.model_dump()

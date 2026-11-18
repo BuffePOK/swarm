@@ -48,6 +48,11 @@ class FetchResult:
     from_cache: bool
     error: str | None
     elapsed_s: float
+    final_url: str | None = None  # after redirects (unmasked: it is what the server sent back)
+
+    @property
+    def where(self) -> str:
+        return self.final_url or self.url
 
     @property
     def ok(self) -> bool:
@@ -148,6 +153,14 @@ class Fetcher:
                         body = b"".join(chunks)
                         status, ctype = r.status_code, r.headers.get("content-type", "")
                         etag, lm = r.headers.get("etag"), r.headers.get("last-modified")
+                        final = str(r.url)
+                    if urlsplit(final).netloc != urlsplit(url).netloc:  # redirected to another site: its robots.txt applies
+                        ok2, why2 = await self.allowed(final, client)
+                        if not ok2:
+                            res = FetchResult(masked, None, b"", "", None, False, f"{why2} (after redirect to {mask_url(final)})",
+                                              time.monotonic() - t0)
+                            self._log(res, purpose)
+                            return res
                 except _TooLarge:
                     res = FetchResult(masked, None, b"", "", None, False, f"larger than {self.settings.max_bytes} bytes", time.monotonic() - t0)
                     self._log(res, purpose)
@@ -158,7 +171,8 @@ class Fetcher:
                     return res
         elapsed = time.monotonic() - t0
         if status == 304 and cached and cached["ref"]:
-            res = FetchResult(masked, 304, self.cas.get_bytes(cached["ref"]), cached["content_type"] or "", cached["ref"], True, None, elapsed)
+            res = FetchResult(masked, 304, self.cas.get_bytes(cached["ref"]), cached["content_type"] or "", cached["ref"], True, None, elapsed,
+                              final)
         elif 200 <= status < 300:
             ref = self.cas.put_bytes(body)
             self.store.run(
@@ -166,9 +180,9 @@ class Fetcher:
                 " VALUES(?,?,?,?,?,?,?,?)",
                 (key, masked, etag, lm, ref, status, ctype, utcnow_iso()),
             )
-            res = FetchResult(masked, status, body, ctype, ref, False, None, elapsed)
+            res = FetchResult(masked, status, body, ctype, ref, False, None, elapsed, final)
         else:
-            res = FetchResult(masked, status, body[:2000], ctype, None, False, f"HTTP {status}", elapsed)
+            res = FetchResult(masked, status, body[:2000], ctype, None, False, f"HTTP {status}", elapsed, final)
         self._log(res, purpose)
         return res
 

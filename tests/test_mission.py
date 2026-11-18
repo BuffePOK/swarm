@@ -122,6 +122,11 @@ def test_cli_mission_flow(home, capsys):
     assert main(base + ["mission", "start", "-p", "lab", "Improve roj with roj"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["status"] == "needs_answers" and out["next"] == "roj mission answer" and len(out["open_questions"]) == 2
+    assert main(base + ["logs", "raw", "-p", "lab"]) == 0  # the gateway's own answers of the intake
+    raw = json.loads(capsys.readouterr().out)
+    assert raw["answers"] and raw["answers"][0]["finish_reason"] == "stop" and "understanding" in raw["answers"][0]["content"]
+    assert main(base + ["mission", "intake", "-p", "lab"]) == 0  # intake again: known questions are not duplicated
+    assert len(json.loads(capsys.readouterr().out)["open_questions"]) == 2
     assert main(base + ["mission", "next", "-p", "lab"]) == 2
     capsys.readouterr()
     assert main(base + ["mission", "answer", "-p", "lab", "focus=reliability"]) == 0

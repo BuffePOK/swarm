@@ -218,8 +218,10 @@ class LLMCaller:
                 "completion_tokens": resp.usage.completion_tokens, "usage_estimated": resp.usage.estimated,
                 "cost_usd": round(cost, 8), "price_known": known, "latency_s": round(resp.latency_s, 3),
                 "finish_reason": resp.finish_reason, "response_ref": response_ref,
+                **({"reasoning_tokens": resp.usage.reasoning_tokens} if resp.usage.reasoning_tokens else {}),
+                **({"reasoning_chars": resp.reasoning_chars} if resp.reasoning_chars else {}),
             })
-            if cacheable(params, use_cache):
+            if cacheable(params, use_cache) and resp.finish_reason not in ("length", "max_tokens"):  # never replay a cut answer
                 self.cache.put(key, model, {"text": resp.text, "model": resp.model, "finish_reason": resp.finish_reason,
                                             "usage": resp.usage.__dict__})
             return LLMResult(text=resp.text, model=model, requested_model=binding.model, usage=resp.usage,

@@ -172,6 +172,15 @@ def _handler(state: FakeWebState):
                 return self._send(200, json.dumps(res).encode(), "application/json")
             if path == "/api/se":
                 return self._send(503, b'{"error_message": "down"}', "application/json")
+            if path.startswith("/moved-docs/"):  # like docs.claude.com -> platform.claude.com/docs
+                port = self.headers.get("Host", "").rsplit(":", 1)[-1]
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{port}/docs-site/a")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path == "/missing-docs/gone":
+                return self._send(404, b"not here", "text/plain")
             if path == "/sitemap.xml":
                 locs = "".join(f"<url><loc>http://{self.headers.get('Host')}{p}</loc></url>" for p in ("/docs-site/a", "/docs-site/b", "/other/x"))
                 return self._send(200, f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{locs}</urlset>'.encode(), "application/xml")

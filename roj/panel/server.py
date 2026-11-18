@@ -239,7 +239,11 @@ class Panel:
                              + (f" · options: {esc(' | '.join(q['options']))}" if q.get("options") else "") + "</span><br>"
                              f"<input name='q_{esc(q['id'])}' style='width:100%' placeholder='default: {esc(q.get('default') or '(none)')}'></p>" for q in qs)
             out.append("<h2>Questions</h2><div class='card'>" + form("answer", fields + "<button>Answer (empty = default)</button>") + "</div>")
-        elif not busy and m["status"] in ("ready", "stage_done", "new"):
+        elif not busy and m["status"] == "new":
+            out.append("<div class='card'><b>The intake has not finished</b> (see the last mission.intake task). "
+                       + form("intake", "<button>Run the intake again</button> <span class='mut'>the Architect reads the goal and "
+                                         "the documents again and asks its questions</span>") + "</div>")
+        elif not busy and m["status"] in ("ready", "stage_done"):
             out.append("<div class='card'>" + form("next", "<button>Plan the next stage</button> <span class='mut'>the Architect plans, "
                                                     "the Leader checks, then it waits for your approval</span>") + "</div>")
         if m["stages"]:
@@ -302,6 +306,8 @@ class Panel:
                     ms.set_control(p, mid, form.get("control", "leads"))
                 elif action == "answer":
                     ms.answer(p, mid, {k[2:]: v.strip() for k, v in form.items() if k.startswith("q_") and v.strip()})
+                elif action == "intake":
+                    ref, inputs = ms.INTAKE_REF, {"mission": mid}
                 elif action == "next":
                     if ms.open_questions(m):
                         raise ValueError("answer the open questions first")

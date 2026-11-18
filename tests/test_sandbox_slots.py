@@ -73,3 +73,23 @@ def test_slot_gives_up_after_bounded_attempts(project, gateway):
                     output_format="JSON")
     with pytest.raises(SlotFailed):
         asyncio.run(run_slot(_ctx(project), slot, task, binding=ModelBinding(model="fake-sloppy"), scope="role:tester"))
+
+
+def test_extract_json_skips_reasoning_blocks():
+    assert extract_json('<think>maybe {"a": 0}?</think>{"a": 1}') == {"a": 1}
+    with pytest.raises(ValueError):
+        extract_json('<think>still thinking about {"a": 0')  # cut off inside the reasoning
+
+
+def test_slot_gets_more_room_when_cut_off(project, gateway):
+    """A reasoning model that runs out of tokens is not 'wrong': the slot doubles max_tokens instead of repairing."""
+    slot = Slot("tester", RoleSpec("tester", "You answer questions."), Answer, max_tokens=1000)
+    task = TaskSpec(goal="Answer the question about life", deliverable="Answer JSON", acceptance=["answer is exactly 42"],
+                    output_format="JSON")
+    res = asyncio.run(run_slot(_ctx(project), slot, task, binding=ModelBinding(model="fake-verbose"), scope="role:tester"))
+    assert res.value.answer == "42" and res.attempts == 3  # 1000 -> 2000 (both cut) -> 4000
+    bad = [e.payload for e in project.events.query(type="slot.invalid")]
+    assert [b["max_tokens"] for b in bad] == [1000, 2000] and all(b["truncated"] and b["finish_reason"] == "length" for b in bad)
+    calls = [e.payload for e in project.events.query(type="llm.call") if e.payload.get("model") == "fake-verbose"]
+    assert [c["finish_reason"] for c in calls] == ["length", "length", "stop"]
+    assert not project.events.query(type="llm.cache_hit")

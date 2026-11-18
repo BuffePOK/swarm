@@ -35,9 +35,14 @@ def _norm(url: str) -> str:
     return f"{u.scheme}://{u.netloc}{u.path or '/'}"
 
 
+def _robots_sitemaps(project: "Project", origin: str) -> list[str]:
+    row = project.store.one("SELECT body FROM robots_cache WHERE origin = ?", (origin,))
+    return [m.group(1).strip() for m in re.finditer(r"(?im)^\s*sitemap:\s*(\S+)", (row["body"] or "") if row else "")]
+
+
 async def _sitemap(project: "Project", origin: str, host: str, prefix: str, limit: int) -> list[str]:
     out: list[str] = []
-    todo, seen = deque([origin + "/sitemap.xml"]), set()
+    todo, seen = deque(dict.fromkeys(_robots_sitemaps(project, origin) + [origin + "/sitemap.xml"])), set()
     while todo and len(seen) < 6 and len(out) < limit:
         sm = todo.popleft()
         if sm in seen:
@@ -68,17 +73,29 @@ async def crawl(project: "Project", start: str, *, max_pages: int = 50, depth: i
     if u.scheme not in ("http", "https") or not u.netloc:
         raise ValueError("start must be an http(s) URL")
     host, origin = u.netloc, f"{u.scheme}://{u.netloc}"
+    explicit_prefix = prefix
     prefix = prefix if prefix is not None else (u.path.rsplit("/", 1)[0] + "/" if "/" in u.path else "/")
+    stats: dict[str, Any] = {"pack": "", "prefix": prefix, "indexed": 0, "unchanged": 0, "thin": 0, "rendered": 0,
+                             "refused": 0, "errors": []}
+    first = await project.fetcher.get(start, purpose="crawl:start")
+    if first.ok and first.final_url and _norm(first.final_url) != _norm(start):
+        fu = urlsplit(first.final_url)  # moved (e.g. docs.claude.com -> platform.claude.com/docs): follow the site, not the old address
+        stats["redirected_to"] = first.final_url
+        if fu.netloc != host or not fu.path.startswith(prefix):
+            host, origin = fu.netloc, f"{fu.scheme}://{fu.netloc}"
+            if explicit_prefix is None:
+                prefix = fu.path.rsplit("/", 1)[0] + "/" if "/" in fu.path else "/"
+        start = first.final_url
+    stats["prefix"] = prefix
     kb = KnowledgeBase(project)
     pack = pack_name(host)
+    stats["pack"] = pack
     if pack not in {p["pack"] for p in kb.packs()}:
         kb.create(pack, f"Pages of {host} indexed by roj's crawler (full text, sources are the page URLs)")
     queue: deque[tuple[str, int]] = deque([(_norm(start), 0)])
     for loc in await _sitemap(project, origin, host, prefix, max_pages * 3):
         queue.append((loc, 1))
     seen: set[str] = set()
-    stats: dict[str, Any] = {"pack": pack, "prefix": prefix, "indexed": 0, "unchanged": 0, "thin": 0, "rendered": 0,
-                             "refused": 0, "errors": []}
     browser = None
     while queue and stats["indexed"] + stats["unchanged"] < max_pages:
         url, d = queue.popleft()
@@ -92,11 +109,12 @@ async def crawl(project: "Project", start: str, *, max_pages: int = 50, depth: i
             break
         r = await project.fetcher.get(url, purpose="crawl")
         if not r.ok:
-            stats["refused" if r.error and "robots" in r.error else "errors"] += 1 if r.error and "robots" in r.error else 0
-            if not (r.error and "robots" in r.error):
+            if r.error and "robots" in r.error:
+                stats["refused"] += 1
+            else:
                 stats["errors"].append(f"{url}: {r.error or r.status}")
             continue
-        html, final = r.text(), r.url
+        html, final = r.text(), r.where
         page = extract(html, final)
         if render == "always" or (render == "auto" and needs_browser(html, page)):
             from .browser import BrowserUnavailable, pool

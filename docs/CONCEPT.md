@@ -1,6 +1,6 @@
 # roj: the complete concept
 
-Version of this document: 2026-11-16, describes roj v0.6.0.
+Version of this document: 2026-11-16, describes roj v0.6.2.
 Owner-only file: agents read it, they do not edit it (it is a protected path). Changes to
 goals and rules come from the owner.
 
@@ -572,7 +572,9 @@ mission stages already follow this shape].
 ## 13. Skills and recurring work
 
 - **Skill = code skeleton with slots** [built]. Mechanical parts are always code. A slot is
-  the only place a model works: one call with a typed, schema-validated output and a repair loop.
+  the only place a model works: one call with a typed, schema-validated output and a repair loop. An answer cut off
+  by the output limit (`finish_reason: length`, typical of reasoning models that think first) is not repaired but
+  asked again with twice the room, up to 32,000 output tokens; the cut answer is never cached.
 - **Compile once** (ADR-0005) [built]: a bootstrap researches, measures and compiles a
   declarative spec plus gated adapters; daily runs execute it; repair is deterministic first.
 - **Bootstrap is R&D** (ADR-0006): it is allowed to be about ten times dearer than a daily
@@ -759,7 +761,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 | `roj/cli.py`, `roj/config.py`, `roj/project.py`, `roj/contracts.py` | command line, settings, wiring, typed contracts |
 | `docs/` | this document, ADR-0001 to 0009, SERVER, WALKTHROUGH, FIRST_RUN, BACKLOG, architecture |
 | `deploy/podman/`, `Dockerfile`, `.github/workflows/ci.yml` | deployment |
-| `tests/` | 134 tests |
+| `tests/` | 135 tests |
 
 ---
 
@@ -767,7 +769,7 @@ The gateway is unlimited; the design goal is still the lowest cost per accepted 
 
 ### 21.1 What exists
 
-About 13,500 lines of library code, 134 tests, versions 0.1 to 0.6.0 written between
+About 13,500 lines of library code, 138 tests, versions 0.1 to 0.6.2 written between
 2026-11-06 and 2026-11-15 in one continuous design-and-build conversation between the owner
 and an AI assistant. Phases: kernel and model stack; the Morning brief with a research
 bootstrap; gates, Telegram, panel, knowledge packs, agent loop, Blueprint; then server

@@ -86,3 +86,13 @@ def test_browser_renders_javascript_pages(project, web):
     assert stats["rendered"] >= 1 and stats["indexed"] == 4
     ev = project.store.one("SELECT COUNT(*) n FROM events WHERE type = 'web.render'")["n"]
     assert ev >= 2
+
+
+def test_crawl_follows_a_site_that_moved_and_survives_errors(project, web):
+    _, url = web
+    port = url.rsplit(":", 1)[-1]
+    stats = run(crawl(project, f"http://127.0.0.1:{port}/moved-docs/start", max_pages=10, render="never"))
+    assert stats["redirected_to"] == f"http://localhost:{port}/docs-site/a"
+    assert stats["pack"] == f"web-localhost-{port}" and stats["prefix"] == "/docs-site/" and stats["indexed"] == 3
+    bad = run(crawl(project, f"{url}/missing-docs/gone", max_pages=5, render="never"))
+    assert bad["indexed"] == 0 and bad["errors"] and "404" in bad["errors"][0]

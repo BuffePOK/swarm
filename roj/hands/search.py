@@ -220,8 +220,13 @@ async def _arxiv(c: httpx.AsyncClient, url: str, query: str, n: int) -> list[dic
     return out
 
 
-async def _semantic_scholar(c: httpx.AsyncClient, url: str, query: str, n: int) -> list[dict[str, Any]]:
-    r = await c.get(url, params={"query": query, "limit": n, "fields": "title,url,abstract,year,citationCount,venue"})
+async def _semantic_scholar(c: httpx.AsyncClient, url: str, query: str, n: int, key_env: str = "") -> list[dict[str, Any]]:
+    key = os.environ.get(key_env, "") if key_env else ""
+    params = {"query": query, "limit": n, "fields": "title,url,abstract,year,citationCount,venue"}
+    r = await c.get(url, params=params, headers={"x-api-key": key} if key else None)
+    if r.status_code == 429:  # the keyless pool is shared by everyone: wait once and retry
+        await asyncio.sleep(3.0)
+        r = await c.get(url, params=params, headers={"x-api-key": key} if key else None)
     r.raise_for_status()
     return [{"title": x.get("title"), "url": x.get("url"), "snippet": x.get("abstract"), "published": x.get("year"),
              "citations": x.get("citationCount"), "venue": x.get("venue"), "source": "semantic_scholar"} for x in r.json().get("data") or []]
@@ -234,11 +239,11 @@ async def paper_search(inst: "Installation", query: str, n: int = 8, source: str
     _count(inst)
     results, errors = [], []
     async with httpx.AsyncClient(timeout=cfg.timeout_s, headers={"User-Agent": inst.settings.web.user_agent}) as c:
-        for name, fn, url in (("arxiv", _arxiv, cfg.arxiv_url), ("semantic_scholar", _semantic_scholar, cfg.semantic_scholar_url)):
+        for name, url in (("arxiv", cfg.arxiv_url), ("semantic_scholar", cfg.semantic_scholar_url)):
             if source not in ("all", name):
                 continue
             try:
-                results += await fn(c, url, query, n)
+                results += await (_arxiv(c, url, query, n) if name == "arxiv" else _semantic_scholar(c, url, query, n, cfg.semantic_scholar_key_env))
             except (httpx.HTTPError, ET.ParseError, ValueError) as e:
                 errors.append(f"{name}: {type(e).__name__}: {str(e)[:120]}")  # e.g. Semantic Scholar's shared rate limit
     out = _clean(results, 2 * n)
