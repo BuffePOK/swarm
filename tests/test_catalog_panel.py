@@ -149,3 +149,41 @@ def test_panel_runs_a_mission_end_to_end(home):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_panel_reruns_an_unfinished_intake(home):
+    """A mission whose intake failed stays 'new': the page offers the intake again, not a stage plan."""
+    from roj import mission as ms
+    from roj.panel.server import serve
+
+    inst = Installation(home)
+    p = inst.create_project("lab")
+    mid = ms.create(p, "Improve roj with roj, step by step", "leads")
+    p.close()
+    inst.close()
+    server, panel, url = serve(home, "127.0.0.1", 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+    opener.open(f"{base}/?token={panel.token}", timeout=10)
+
+    def status():
+        i = Installation(home)
+        q = i.project("lab")
+        try:
+            return ms.load(q, mid)["status"]
+        finally:
+            q.close()
+            i.close()
+
+    try:
+        page = opener.open(f"{base}/p/lab/mission/{mid}", timeout=10).read().decode()
+        assert "Run the intake again" in page and "Plan the next stage" not in page
+        opener.open(f"{base}/p/lab/mission/{mid}/intake", data=urllib.parse.urlencode({"token": panel.token}).encode(), timeout=10)
+        end = time.time() + 20
+        while status() != "needs_answers" and time.time() < end:
+            time.sleep(0.1)
+        assert status() == "needs_answers"
+    finally:
+        server.shutdown()
+        server.server_close()

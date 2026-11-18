@@ -353,8 +353,8 @@ otwarta, agenci nie mogą używać tego profilu (czytają wtedy bez renderowania
 ```bash
 roj browser check                                         # chromium …: rendered by JavaScript
 roj search -p lab "multi-agent orchestration" -n 3        # → wklej (wyniki z kilku źródeł, errors puste)
-roj browser fetch -p lab https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview
-roj crawl -p lab https://docs.claude.com/en/docs/build-with-claude/ --max-pages 30   # → wklej
+roj browser fetch -p lab https://platform.claude.com/docs/en/build-with-claude/overview
+roj crawl -p lab https://platform.claude.com/docs/en/build-with-claude/overview --max-pages 30   # → wklej
 roj search -p lab "prompt caching" --sources index -n 3
 ```
 
@@ -591,6 +591,12 @@ roj mission start -p lab --control full "$(cat ~/rnd-goal.md)"
 Jedno wywołanie Architekta. Wynik (JSON): `"status": "needs_answers"`, `understanding`
 (co zrozumiał), `open_questions` (do 6 pytań: pytanie, dlaczego ważne, opcje, wartość domyślna).
 
+Modele „myślące” (np. Qwen, DeepSeek-R) najpierw rozumują, potem piszą JSON. Jeśli limit
+odpowiedzi się skończy, w logu zadania zobaczysz `WARN invalid mission-intake … CUT OFF at
+8000/8000 tokens`; roj sam ponawia z dwa razy większym limitem (do 32 000). Gdy intake
+mimo to się nie uda, misja zostaje w stanie `new`: w panelu przycisk *Run the intake again*,
+w CLI `roj mission intake -p lab`. Surowe odpowiedzi bramki: `roj logs raw -p lab [<task>]`.
+
 ### 13.2 Odpowiedzi
 
 ```bash
@@ -759,6 +765,7 @@ Playbook, wszystkie prompty i odpowiedzi z okresu. Bez kluczy i tokenów (sprawd
 | po scaleniu serwer ma stary kod | Actions zielone? `podman auto-update --dry-run`; `AutoUpdate=registry` w `roj.container` |
 | Architekt wybiera drogie albo słabe modele | `roj pricing show` (czy ceny są wpisane), `roj lab cards` (czy są karty); powiedz mu to: `roj chat --to architect "…"` (zostaje dyrektywą) |
 | `doctor --live`: `BadRequest … deprecated` / `top_p must be 1` | od v0.5.1 roj sam poprawia takie zapytanie i zapamiętuje poprawkę per model; `roj models --quirks` pokazuje, czego się nauczył, `--forget-quirks <model>` kasuje |
+| `slot.invalid … no JSON object in the answer`, `out` = limit | odpowiedź ucięta (model rozumował do końca limitu); od v0.6.2 roj sam podwaja limit; `roj logs raw -p lab <task>` pokazuje `finish_reason`, `usage` i początek tekstu; potem `roj mission intake -p lab` |
 | plan etapu odrzucony 3 razy | raport błędu w `roj logs show -p lab` (zdarzenia `mission.plan_revision`) → wklej |
 
 ---

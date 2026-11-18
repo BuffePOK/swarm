@@ -104,6 +104,7 @@ class SearchSettings(BaseModel):
     endpoints: dict[str, str] = Field(default_factory=dict)  # override of the free APIs' URLs (tests, mirrors)
     github_token_env: str = "ROJ_GITHUB_TOKEN"  # optional: raises GitHub's search limit from 10 to 30 per minute
     stackexchange_key_env: str = "ROJ_STACKEXCHANGE_KEY"  # optional: 300 -> 10,000 requests per day
+    semantic_scholar_key_env: str = "ROJ_S2_KEY"  # optional free key from Semantic Scholar: own rate limit instead of the shared one
     max_results: int = 8
     daily_limit: int = 2000  # searches per installation per day
     crawl_daily_pages: int = 3000  # pages roj may add to its own index per day

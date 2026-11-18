@@ -42,7 +42,9 @@ def _line(e: Event) -> tuple[str, str]:
         est = " est." if p.get("usage_estimated") else ""
         return "LLM", (f"{p.get('agent')} -> {p['model']}{fb}  in {p['prompt_tokens']:,} (cached {p['cached_tokens']:,}) "
                        f"out {p['completion_tokens']:,}{est}  ${p['cost_usd']:.5f}  {p['latency_s']:.2f}s  "
-                       f"try {p.get('attempt', 1)}  [{p.get('purpose', '')}]")
+                       f"try {p.get('attempt', 1)}  [{p.get('purpose', '')}]"
+                       + (f"  finish={p['finish_reason']}" if p.get("finish_reason") not in (None, "stop", "tool_calls") else "")
+                       + (f"  reasoning {p['reasoning_tokens']:,}" if p.get("reasoning_tokens") else ""))
     if t == "llm.cache_hit":
         return "LLM", f"{p.get('agent')} -> {p['model']}  exact cache hit, saved {p.get('saved_tokens', 0):,} tokens"
     if t == "llm.error":
@@ -66,7 +68,9 @@ def _line(e: Event) -> tuple[str, str]:
         return "TASK", f"{t[5:]} {_short(rest, 180) if rest else ''}"
     if t.startswith("slot."):
         lvl = "WARN" if t == "slot.invalid" else "SLOT"
-        return lvl, f"{t[5:]} {p.get('slot')} attempt {p.get('attempt', p.get('attempts'))} {_short(p.get('error', ''), 140)}"
+        cut = (f" CUT OFF at {p.get('completion_tokens')}/{p.get('max_tokens')} tokens, next try gets more room;" if p.get("truncated") else "")
+        head = f" | starts: {_short(' '.join(p['head'].split()), 120)}" if p.get("head") else ""
+        return lvl, f"{t[5:]} {p.get('slot')} attempt {p.get('attempt', p.get('attempts'))}{cut} {_short(p.get('error', ''), 140)}{head}"
     if t.startswith(("approval.", "policy.")):
         return "OWNER", f"{t} {p.get('action', '')} {_short({k: v for k, v in p.items() if k != 'action'}, 160)}"
     if t.startswith("budget."):

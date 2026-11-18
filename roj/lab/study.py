@@ -198,7 +198,7 @@ async def s_research(ctx: StepContext) -> dict[str, Any]:
                     acceptance=["Każde zalecenie zawiera identyfikator dokumentu źródłowego w polu source",
                                 "Co najwyżej 6 zaleceń na rodzinę modeli", "Pole knob zawiera wyłącznie nazwę z listy knobs albo null"],
                     inputs={"knobs": KNOBS, "families": sorted({d["family"] for d in read})}, budget=BudgetSpec(tokens=30_000))
-    res = await run_slot(ctx, Slot("lab-researcher", RESEARCHER, ReadClaims, max_tokens=2500), task,
+    res = await run_slot(ctx, Slot("lab-researcher", RESEARCHER, ReadClaims, max_tokens=6000), task,
                          binding=_bind(ctx, "researcher", "planner", "analyst"), scope="team:lab/agent:researcher", documents=docs)
     known = {d.id for d in docs}
     claims = [c.model_dump() for c in res.value.claims if c.source in known]  # a claim without a real source is dropped

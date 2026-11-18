@@ -6,6 +6,7 @@ without spending a single real token:
   fake-ok, fake-cheap, fake-*   200, deterministic echo, simulated prefix caching
   fake-smart, fake-smart-b      play the morning-brief roles (see fake_brains)
   fake-sloppy                   invalid JSON first, valid after a repair message
+  fake-verbose                  thinks aloud: below max_tokens=3000 it is cut off (finish_reason "length")
   fake-blocked*                 403 "disabled for violation of Terms of Service"
   fake-ratelimit*               429 with Retry-After: 0
   fake-flaky*                   500 for the first 2 requests, then 200
@@ -30,7 +31,7 @@ from typing import Any
 from .fake_brains import respond
 
 DEFAULT_MODELS = ["fake-ok", "fake-cheap", "fake-blocked", "fake-ratelimit", "fake-flaky", "fake-auth", "fake-bad",
-                  "fake-smart", "fake-smart-b", "fake-sloppy", "fake-embed", "fake-notemp", "fake-greedy"]
+                  "fake-smart", "fake-smart-b", "fake-sloppy", "fake-embed", "fake-notemp", "fake-greedy", "fake-verbose"]
 
 
 class FakeState:
@@ -144,7 +145,14 @@ def _make_handler(state: FakeState):
                     state.seen_prefixes.add(prefix)
             digest = hashlib.sha256(everything.encode()).hexdigest()[:12]
             tool_calls = None
-            if model.startswith(("fake-smart", "fake-sloppy")):
+            finish = "stop"
+            if model.startswith("fake-verbose"):  # like a reasoning model that thinks before it answers
+                limit = int(body.get("max_tokens") or 1000)
+                if limit < 3000:
+                    text, finish = ("<think>" + "Let me weigh every option carefully. " * 400)[: limit * 4], "length"
+                else:
+                    text = '<think>' + "Weighing the options. " * 50 + '</think>{"answer": "42"}'
+            elif model.startswith(("fake-smart", "fake-sloppy")):
                 text = respond(model, messages)
                 if text.startswith('{"__tool_calls__"'):
                     calls = json.loads(text)["__tool_calls__"]
@@ -158,7 +166,7 @@ def _make_handler(state: FakeState):
                 "object": "chat.completion",
                 "model": model,
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": text or None, **({"tool_calls": tool_calls} if tool_calls else {})},
-                             "finish_reason": "tool_calls" if tool_calls else "stop"}],
+                             "finish_reason": "tool_calls" if tool_calls else finish}],
                 "usage": {
                     "prompt_tokens": _tokens(everything),
                     "completion_tokens": _tokens(text),

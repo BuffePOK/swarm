@@ -266,7 +266,7 @@ async def s_intake(ctx: StepContext) -> dict[str, Any]:
                     acceptance=["Pole understanding streszcza cel w 2-5 zdaniach i nazywa największą niewiadomą",
                                 "Najwyżej 6 pytań; każde ma id, uzasadnienie i wartość domyślną",
                                 "Zero pytań o rzeczy, które wynikają z dokumentów"], budget=BudgetSpec(tokens=30_000))
-    res = await run_slot(ctx, Slot("mission-intake", RoleSpec("mission-intake", ARCHITECT, rules=ARCH_RULES), Intake, max_tokens=2000), task,
+    res = await run_slot(ctx, Slot("mission-intake", RoleSpec("mission-intake", ARCHITECT, rules=ARCH_RULES), Intake, max_tokens=8000), task,
                          binding=_bind(ctx, "architect", "planner"), scope="team:mission/agent:architect", documents=facts(ctx, m))
     m = load(ctx.project, m["id"])
     m["understanding"] = res.value.understanding
@@ -313,7 +313,7 @@ async def s_plan(ctx: StepContext) -> dict[str, Any]:
     n = len(m["stages"]) + 1
     await ensure_catalog(ctx)
     docs = facts(ctx, m)
-    slot = Slot("mission-architect", RoleSpec("mission-architect", ARCHITECT, rules=ARCH_RULES), MissionPlan, max_tokens=4000)
+    slot = Slot("mission-architect", RoleSpec("mission-architect", ARCHITECT, rules=ARCH_RULES), MissionPlan, max_tokens=12000)
     acceptance = ["Pole stage opisuje wyłącznie najbliższy etap, z zespołem najwyżej 5 agentów",
                   "Każde kryterium etapu i każdego agenta da się sprawdzić po wynikach (liczba, lista, plik, wpis w pakiecie wiedzy)",
                   "Roadmap ma od 1 do 10 krótkich tytułów kolejnych etapów", "Charter zachowuje ustalenia z poprzednich etapów"]
@@ -330,7 +330,7 @@ async def s_plan(ctx: StepContext) -> dict[str, Any]:
             ctask = TaskSpec(goal="Oceń plan etapu przed pokazaniem go właścicielowi", deliverable="Critique JSON", output_format="Wyłącznie JSON",
                              acceptance=["Werdykt to approve albo revise", "Każdy zarzut wskazuje agenta albo kryterium i mówi, co zmienić"],
                              budget=BudgetSpec(tokens=30_000))
-            crit = (await run_slot(ctx, Slot("mission-critic", RoleSpec("mission-critic", LEADER), Critique, max_tokens=1200), ctask,
+            crit = (await run_slot(ctx, Slot("mission-critic", RoleSpec("mission-critic", LEADER), Critique, max_tokens=4000), ctask,
                                    binding=_bind(ctx, "leader", "critic", "planner"), scope="team:mission/agent:leader",
                                    documents=[docs[0], Document("plan", canonical_json(plan.model_dump()), "architect")])).value
             if crit.verdict == "approve" or attempt == 3:
@@ -387,7 +387,7 @@ async def s_review(ctx: StepContext) -> dict[str, Any]:
     docs = [Document("mission", canonical_json({"goal": m["goal"], "charter": p["plan"]["charter"], "directives": m["directives"]}), "mission"),
             Document("stage", canonical_json(p["plan"]["stage"]), "approved stage plan"),
             Document("results", canonical_json(ctx.results["team"]["results"]), "agents' results")]
-    res = await run_slot(ctx, Slot("mission-review", RoleSpec("mission-review", LEADER), StageReview, max_tokens=3000), task,
+    res = await run_slot(ctx, Slot("mission-review", RoleSpec("mission-review", LEADER), StageReview, max_tokens=8000), task,
                          binding=_bind(ctx, "leader", "critic", "planner"), scope="team:mission/agent:leader", documents=docs)
     return res.value.model_dump()
 
@@ -476,7 +476,7 @@ async def s_chat(ctx: StepContext) -> dict[str, Any]:
                     acceptance=["Odpowiedź odnosi się do wiadomości i opiera się na stanie misji z dokumentów",
                                 "Jeśli wiadomość zawiera trwałe polecenie właściciela, pole directive streszcza je w 1 zdaniu; w innym razie null"],
                     inputs={"owner_message": text}, budget=BudgetSpec(tokens=20_000))
-    res = await run_slot(ctx, Slot("mission-chat", RoleSpec("mission-chat", persona), ChatReply, max_tokens=1500), task, binding=binding,
+    res = await run_slot(ctx, Slot("mission-chat", RoleSpec("mission-chat", persona), ChatReply, max_tokens=4000), task, binding=binding,
                          scope=f"team:mission/agent:{to}", documents=docs)
     m = load(ctx.project, m["id"])
     thread = m["threads"].setdefault(to, [])

@@ -8,6 +8,7 @@ behind the same `chat()` signature later.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,7 @@ class Usage:
     completion_tokens: int = 0
     cached_tokens: int = 0
     estimated: bool = False
+    reasoning_tokens: int = 0  # part of completion_tokens the model spent thinking (when the gateway reports it)
 
     @property
     def total(self) -> int:
@@ -40,6 +42,7 @@ class ChatResponse:
     latency_s: float
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+    reasoning_chars: int = 0  # length of a separate reasoning field (reasoning_content / reasoning), never fed back
 
 
 def parse_usage(raw: dict[str, Any], messages: list[dict[str, Any]], text: str) -> Usage:
@@ -55,7 +58,8 @@ def parse_usage(raw: dict[str, Any], messages: list[dict[str, Any]], text: str) 
             cached_tokens=0,
             estimated=True,
         )
-    return Usage(int(prompt), int(completion), int(cached or 0))
+    cdet = u.get("completion_tokens_details") or u.get("output_tokens_details") or {}
+    return Usage(int(prompt), int(completion), int(cached or 0), reasoning_tokens=int(cdet.get("reasoning_tokens") or 0))
 
 
 class GatewayClient:
@@ -120,6 +124,7 @@ class GatewayClient:
             text = msg.get("content") or ""
             if isinstance(text, list):  # some gateways return content parts
                 text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
+            thought = msg.get("reasoning_content") or msg.get("reasoning") or ""
         except (ValueError, AttributeError, IndexError) as e:
             raise Transient(model, r.status_code, f"unparseable response: {r.text[:200]}") from e
         return ChatResponse(
@@ -130,6 +135,7 @@ class GatewayClient:
             latency_s=latency,
             tool_calls=msg.get("tool_calls") or [],
             raw=raw,
+            reasoning_chars=len(thought) if isinstance(thought, str) else len(json.dumps(thought)),
         )
 
     async def embed(self, model: str, inputs: list[str], headers: dict[str, str] | None = None) -> tuple[list[list[float]], Usage, float]:

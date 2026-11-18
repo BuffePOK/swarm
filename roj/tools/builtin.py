@@ -39,7 +39,7 @@ async def web_fetch(ctx: "StepContext", url: str, max_chars: int = 8000, render:
                 return {"kind": "feed", "title": title, "items": [i.as_dict() for i in items[:40]]}
             except FeedError:
                 pass
-        html, final = r.text(), r.url
+        html, final = r.text(), r.where
     elif render == "never" or (r.error and "robots" in r.error):
         raise ToolError(r.error or f"HTTP {r.status}")
     page = extract(html, final, limit=max(1000, min(max_chars, MAX_TEXT))) if html else None

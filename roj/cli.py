@@ -236,6 +236,10 @@ def build_parser() -> argparse.ArgumentParser:
     los.add_argument("task_id", nargs="?")
     lol = lo.add_parser("list")
     lol.add_argument("-p", "--project", required=True)
+    lor = lo.add_parser("raw", help="the gateway's raw answers of a task (finish_reason, reasoning, content), from the content store")
+    lor.add_argument("-p", "--project", required=True)
+    lor.add_argument("task_id", nargs="?", help="task id prefix (default: the latest task)")
+    lor.add_argument("--chars", type=int, default=1500, help="how much of each text to print")
     loe = lo.add_parser("export", help="zip logs, settings, health and prompts for review")
     loe.add_argument("-p", "--project", action="append")
     loe.add_argument("--days", type=int, default=3)
@@ -340,6 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     mis.add_argument("goal")
     mis.add_argument("--control", choices=["leads", "partial", "full"], default="leads")
     for name, hlp in (("show", "state, questions, stages"), ("next", "plan and run the next stage (stops for your approvals)"),
+                      ("intake", "run the Architect's intake again (after a failed one, or after you changed the documents)"),
                       ("answer", "answer the open questions: id=text ... (no pairs: asks one by one; Enter = default)"),
                       ("control", "switch the control mode: leads | partial | full")):
         x = mi.add_parser(name, help=hlp)
@@ -653,7 +658,7 @@ async def _mission_cmd(args: argparse.Namespace, p) -> int:
                 "stages": [{"n": st["n"], "objective": st["plan"]["objective"], "team": [t["agent"] for t in st["plan"]["team"]],
                             "verdict": st["review"]["verdict"], "change_requests": st["change_requests"]} for st in m["stages"]],
                 "next": {"needs_answers": "roj mission answer", "ready": "roj mission next", "stage_done": "read the stage report, then roj mission next",
-                         "new": "roj mission start", "complete": "nothing: the Leader reports the mission complete"}.get(m["status"], "")}
+                         "new": "roj mission intake (the intake has not finished)", "complete": "nothing: the Leader reports the mission complete"}.get(m["status"], "")}
 
     if args.cmd == "chat":
         m = ms.load(p, args.mission)
@@ -690,6 +695,11 @@ async def _mission_cmd(args: argparse.Namespace, p) -> int:
                 if typed:
                     answers[q["id"]] = typed
         ms.answer(p, m["id"], answers)
+    elif args.action == "intake":
+        res = await p.kernel.run(p.kernel.submit(ms.INTAKE_REF, {"mission": m["id"]}))
+        if res.status.value != "done":
+            _print({"mission": m["id"], "status": res.status.value, "error": res.error}, True)
+            return 4
     elif args.action == "next":
         if ms.open_questions(m):
             print("answer the open questions first: roj mission answer", file=sys.stderr)
@@ -898,6 +908,24 @@ async def _project_cmd(args: argparse.Namespace, p) -> int:
     if args.cmd == "logs":
         from .obs import runlog
 
+        if args.action == "raw":
+            tasks = [t["id"] for t in p.kernel.list(limit=1000) if t["id"].startswith(args.task_id or "")]
+            if not tasks:
+                raise KeyError(f"no task starting with {args.task_id}")
+            tid = tasks[0]
+            out = []
+            for e in p.events.query(type="llm.call", task_id=tid):
+                raw = p.cas.get_json(e.payload["response_ref"]) if e.payload.get("response_ref") else {}
+                ch = (raw.get("choices") or [{}])[0]
+                msg = ch.get("message") or {}
+                text = msg.get("content") or ""
+                thought = msg.get("reasoning_content") or msg.get("reasoning") or ""
+                out.append({"model": e.payload.get("model"), "purpose": e.payload.get("purpose"), "finish_reason": ch.get("finish_reason"),
+                            "usage": raw.get("usage"), "content_chars": len(text if isinstance(text, str) else str(text)),
+                            "content": (text if isinstance(text, str) else str(text))[: args.chars],
+                            **({"reasoning_chars": len(str(thought)), "reasoning": str(thought)[: args.chars]} if thought else {})})
+            _print({"task": tid, "answers": out}, True)
+            return 0
         if args.action == "list":
             root = p.inst.home / "logs" / p.name
             files = sorted(root.glob("*/*.log"), key=lambda f: f.stat().st_mtime, reverse=True) if root.exists() else []
